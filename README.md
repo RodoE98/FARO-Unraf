@@ -41,7 +41,7 @@ git init asistente-backend
 cd asistente-backend
 
 # 2. Vincular el repositorio remoto de GitHub
-git remote add -f origin https://github.com/LocuraExtrema/ChatBot.git
+git remote add -f origin https://github.com/RodoE98/FARO-Unraf.git
 
 # 3. Habilitar Sparse Checkout
 git config core.sparseCheckout true
@@ -144,7 +144,7 @@ git init asistente-frontend
 cd asistente-frontend
 
 # 3. Vincular con el respositorio
-git remote add -f origin https://github.com/LocuraExtrema/ChatBot.git
+git remote add -f origin https://github.com/RodoE98/FARO-Unraf.git
 git config core.sparseCheckout true
 
 # 4. Indicar la carpeta del cliente y realizar el Pull
