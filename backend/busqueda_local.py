@@ -1,6 +1,7 @@
 import pickle
 import os
 import re
+import unicodedata
 
 BIBLIOTECA = {
     "calculo1": "calculus-volume-1.pdf", 
@@ -30,10 +31,30 @@ DICCIONARIO_TECNICO = {
     "gradiente": "gradient",
     "stokes": "stokes",
     "optimizacion": "optimization",
-    "lhopital": "l'hopital"
+    # [FIX] "lhopital" apuntaba a "l'hopital", que no es un termino del indice (el tokenizador del indice
+    # lo deja como "pital"). Se agregan ademas los temas que las fichas declaran sin cobertura, para que
+    # la consulta caiga en el libro y no quede sin contexto.
+    "lhopital": "pital",
+    "hopital": "pital",
+    "derivacion": "differentiation",
+    "implicita": "implicit",
+    "concavidad": "concavity",
+    "inflexion": "inflection",
+    "rolle": "rolle",
+    "trigonometrica": "trigonometric",
+    "trigonometricas": "trigonometric",
+    "seno": "sine",
+    "coseno": "cosine"
 }
 
 INDICES_CARGADOS = {}
+
+
+def _sin_tildes(texto):
+    """[FIX] Los alumnos escriben con tildes ("límite", "derivación") y el diccionario y las listas de
+    palabras clave estan sin tildes: antes esas palabras no coincidian con nada y la consulta quedaba sin contexto."""
+    t = unicodedata.normalize("NFKD", str(texto))
+    return "".join(c for c in t if not unicodedata.combining(c))
 
 def cargar_indice_en_memoria(nombre_libro_clave):
     """Carga el diccionario completo (.pkl) con matriz TF-IDF y chunks de texto."""
@@ -70,6 +91,8 @@ def buscar_en_pdf(pregunta_alumno, limite_chunks=3):
     Busca de forma ultra rápida en el índice invertido utilizando pesos TF-IDF 
     y devuelve los bloques de texto (chunks) más relevantes consolidados.
     """
+    pregunta_alumno = _sin_tildes(pregunta_alumno)
+
     # 1. Selección del Libro
     libro_archivo, libro_clave = seleccionar_libro(pregunta_alumno)
     

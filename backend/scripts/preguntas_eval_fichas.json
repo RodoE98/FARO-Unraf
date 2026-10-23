@@ -1,0 +1,641 @@
+{
+ "descripcion": "Preguntas de prueba para la busqueda de fichas. 'esperadas': IDs aceptables (basta con que aparezca alguno). Lista vacia: no debe devolver ficha. Agregar preguntas reales de alumnos a medida que aparezcan.",
+ "casos": [
+  {
+   "q": "Qué es una función?",
+   "esperadas": [
+    "PRE-01",
+    "PRE-05",
+    "PRE-02"
+   ],
+   "tipo": "cubierta",
+   "split": "dev"
+  },
+  {
+   "q": "como saco el dominio de una funcion",
+   "esperadas": [
+    "PRE-03"
+   ],
+   "tipo": "cubierta",
+   "split": "test"
+  },
+  {
+   "q": "que es la imagen de una funcion",
+   "esperadas": [
+    "PRE-04"
+   ],
+   "tipo": "cubierta",
+   "split": "dev"
+  },
+  {
+   "q": "cómo sé si una función es par o impar",
+   "esperadas": [
+    "PRE-11"
+   ],
+   "tipo": "cubierta",
+   "split": "test"
+  },
+  {
+   "q": "diferencia entre inyectiva y sobreyectiva",
+   "esperadas": [
+    "PRE-10"
+   ],
+   "tipo": "cubierta",
+   "split": "dev"
+  },
+  {
+   "q": "para qué sirve la ordenada al origen",
+   "esperadas": [
+    "PRE-08"
+   ],
+   "tipo": "cubierta",
+   "split": "test"
+  },
+  {
+   "q": "qué representa la pendiente en una función lineal",
+   "esperadas": [
+    "PRE-16"
+   ],
+   "tipo": "cubierta",
+   "split": "dev"
+  },
+  {
+   "q": "cuándo una función es creciente",
+   "esperadas": [
+    "PRE-12"
+   ],
+   "tipo": "cubierta",
+   "split": "test"
+  },
+  {
+   "q": "como se calcula el punto de equilibrio con costos e ingresos",
+   "esperadas": [
+    "PRE-18"
+   ],
+   "tipo": "cubierta",
+   "split": "dev"
+  },
+  {
+   "q": "qué significa que un intervalo sea abierto o cerrado",
+   "esperadas": [
+    "PRE-09"
+   ],
+   "tipo": "cubierta",
+   "split": "test"
+  },
+  {
+   "q": "qué es la tasa de variación media",
+   "esperadas": [
+    "DER-01"
+   ],
+   "tipo": "cubierta",
+   "split": "dev"
+  },
+  {
+   "q": "diferencia entre recta secante y recta tangente",
+   "esperadas": [
+    "DER-01",
+    "DER-02"
+   ],
+   "tipo": "cubierta",
+   "split": "test"
+  },
+  {
+   "q": "definición de derivada usando límite",
+   "esperadas": [
+    "DER-02"
+   ],
+   "tipo": "cubierta",
+   "split": "dev"
+  },
+  {
+   "q": "que es la derivada de una funcion en un punto",
+   "esperadas": [
+    "DER-02"
+   ],
+   "tipo": "cubierta",
+   "split": "test"
+  },
+  {
+   "q": "cómo derivo un producto de funciones",
+   "esperadas": [
+    "DER-04"
+   ],
+   "tipo": "cubierta",
+   "split": "dev"
+  },
+  {
+   "q": "derivada de un cociente",
+   "esperadas": [
+    "DER-05"
+   ],
+   "tipo": "cubierta",
+   "split": "test"
+  },
+  {
+   "q": "como derivo x al cubo",
+   "esperadas": [
+    "DER-06",
+    "DER-03"
+   ],
+   "tipo": "cubierta",
+   "split": "dev"
+  },
+  {
+   "q": "derivada de una raiz cuadrada",
+   "esperadas": [
+    "DER-07"
+   ],
+   "tipo": "cubierta",
+   "split": "test"
+  },
+  {
+   "q": "derivada del logaritmo natural",
+   "esperadas": [
+    "DER-07B"
+   ],
+   "tipo": "cubierta",
+   "split": "dev"
+  },
+  {
+   "q": "cuánto es la derivada de e a la x",
+   "esperadas": [
+    "DER-07B"
+   ],
+   "tipo": "cubierta",
+   "split": "test"
+  },
+  {
+   "q": "regla de la cadena",
+   "esperadas": [
+    "DER-08",
+    "PAR-10"
+   ],
+   "tipo": "cubierta",
+   "split": "dev"
+  },
+  {
+   "q": "cómo derivo una función compuesta",
+   "esperadas": [
+    "DER-08"
+   ],
+   "tipo": "cubierta",
+   "split": "test"
+  },
+  {
+   "q": "qué es la derivada segunda",
+   "esperadas": [
+    "DER-09"
+   ],
+   "tipo": "cubierta",
+   "split": "dev"
+  },
+  {
+   "q": "enunciado del teorema del valor medio",
+   "esperadas": [
+    "DER-10"
+   ],
+   "tipo": "cubierta",
+   "split": "test"
+  },
+  {
+   "q": "si una función es derivable entonces es continua?",
+   "esperadas": [
+    "DER-11"
+   ],
+   "tipo": "cubierta",
+   "split": "dev"
+  },
+  {
+   "q": "una funcion continua siempre es derivable",
+   "esperadas": [
+    "DER-11"
+   ],
+   "tipo": "cubierta",
+   "split": "test"
+  },
+  {
+   "q": "que es una funcion de dos variables",
+   "esperadas": [
+    "MV-01"
+   ],
+   "tipo": "cubierta",
+   "split": "dev"
+  },
+  {
+   "q": "como calculo el dominio de f(x,y)",
+   "esperadas": [
+    "MV-02"
+   ],
+   "tipo": "cubierta",
+   "split": "test"
+  },
+  {
+   "q": "cómo se grafica z=f(x,y)",
+   "esperadas": [
+    "MV-03"
+   ],
+   "tipo": "cubierta",
+   "split": "dev"
+  },
+  {
+   "q": "qué son las curvas de nivel",
+   "esperadas": [
+    "MV-05"
+   ],
+   "tipo": "cubierta",
+   "split": "test"
+  },
+  {
+   "q": "diferencia entre traza y curva de nivel",
+   "esperadas": [
+    "MV-06"
+   ],
+   "tipo": "cubierta",
+   "split": "dev"
+  },
+  {
+   "q": "qué es un paraboloide o un elipsoide",
+   "esperadas": [
+    "MV-04"
+   ],
+   "tipo": "cubierta",
+   "split": "test"
+  },
+  {
+   "q": "qué significa el límite de una función de dos variables",
+   "esperadas": [
+    "MV-07"
+   ],
+   "tipo": "cubierta",
+   "split": "dev"
+  },
+  {
+   "q": "puede existir el limite aunque la funcion no este definida en el punto",
+   "esperadas": [
+    "MV-08"
+   ],
+   "tipo": "cubierta",
+   "split": "test"
+  },
+  {
+   "q": "como demuestro que un limite en dos variables no existe",
+   "esperadas": [
+    "MV-09",
+    "MV-12"
+   ],
+   "tipo": "cubierta",
+   "split": "dev"
+  },
+  {
+   "q": "que son los limites iterados",
+   "esperadas": [
+    "MV-11"
+   ],
+   "tipo": "cubierta",
+   "split": "test"
+  },
+  {
+   "q": "cuando conviene pasar a coordenadas polares en un limite",
+   "esperadas": [
+    "MV-12B"
+   ],
+   "tipo": "cubierta",
+   "split": "dev"
+  },
+  {
+   "q": "que hago primero cuando me da una indeterminacion 0/0 en un limite",
+   "esperadas": [
+    "MV-10"
+   ],
+   "tipo": "cubierta",
+   "split": "test"
+  },
+  {
+   "q": "qué es una derivada parcial",
+   "esperadas": [
+    "PAR-01"
+   ],
+   "tipo": "cubierta",
+   "split": "dev"
+  },
+  {
+   "q": "como derivo parcialmente respecto de y",
+   "esperadas": [
+    "PAR-01",
+    "PAR-02"
+   ],
+   "tipo": "cubierta",
+   "split": "test"
+  },
+  {
+   "q": "errores comunes al derivar parcialmente",
+   "esperadas": [
+    "PAR-03"
+   ],
+   "tipo": "cubierta",
+   "split": "dev"
+  },
+  {
+   "q": "derivadas parciales de segundo orden y mixtas",
+   "esperadas": [
+    "PAR-04"
+   ],
+   "tipo": "cubierta",
+   "split": "test"
+  },
+  {
+   "q": "qué representa geométricamente fx",
+   "esperadas": [
+    "PAR-05"
+   ],
+   "tipo": "cubierta",
+   "split": "dev"
+  },
+  {
+   "q": "ecuación del plano tangente a una superficie",
+   "esperadas": [
+    "PAR-06"
+   ],
+   "tipo": "cubierta",
+   "split": "test"
+  },
+  {
+   "q": "qué significa que una función sea diferenciable",
+   "esperadas": [
+    "PAR-07"
+   ],
+   "tipo": "cubierta",
+   "split": "dev"
+  },
+  {
+   "q": "diferenciable implica continua?",
+   "esperadas": [
+    "PAR-07"
+   ],
+   "tipo": "cubierta",
+   "split": "test"
+  },
+  {
+   "q": "como hago la linealizacion de una funcion",
+   "esperadas": [
+    "PAR-08"
+   ],
+   "tipo": "cubierta",
+   "split": "dev"
+  },
+  {
+   "q": "para que sirve el diferencial total",
+   "esperadas": [
+    "PAR-09"
+   ],
+   "tipo": "cubierta",
+   "split": "test"
+  },
+  {
+   "q": "regla de la cadena para funciones de varias variables",
+   "esperadas": [
+    "PAR-10"
+   ],
+   "tipo": "cubierta",
+   "split": "dev"
+  },
+  {
+   "q": "como uso la regla de la cadena con x=r cos y y=r sen",
+   "esperadas": [
+    "PAR-11"
+   ],
+   "tipo": "cubierta",
+   "split": "test"
+  },
+  {
+   "q": "qué es la derivada direccional",
+   "esperadas": [
+    "DIR-01",
+    "DIR-02"
+   ],
+   "tipo": "cubierta",
+   "split": "dev"
+  },
+  {
+   "q": "por qué el vector de la derivada direccional tiene que ser unitario",
+   "esperadas": [
+    "DIR-02"
+   ],
+   "tipo": "cubierta",
+   "split": "test"
+  },
+  {
+   "q": "que es el gradiente",
+   "esperadas": [
+    "DIR-03"
+   ],
+   "tipo": "cubierta",
+   "split": "dev"
+  },
+  {
+   "q": "en que direccion crece mas rapido una funcion",
+   "esperadas": [
+    "DIR-04"
+   ],
+   "tipo": "cubierta",
+   "split": "test"
+  },
+  {
+   "q": "como encuentro los puntos criticos de f(x,y)",
+   "esperadas": [
+    "EXT-01"
+   ],
+   "tipo": "cubierta",
+   "split": "dev"
+  },
+  {
+   "q": "condicion necesaria para que haya un extremo",
+   "esperadas": [
+    "EXT-02"
+   ],
+   "tipo": "cubierta",
+   "split": "test"
+  },
+  {
+   "q": "qué es un punto silla",
+   "esperadas": [
+    "EXT-03"
+   ],
+   "tipo": "cubierta",
+   "split": "dev"
+  },
+  {
+   "q": "como uso el hessiano para clasificar un punto critico",
+   "esperadas": [
+    "EXT-04"
+   ],
+   "tipo": "cubierta",
+   "split": "test"
+  },
+  {
+   "q": "máximos y mínimos de funciones de dos variables",
+   "esperadas": [
+    "EXT-01",
+    "EXT-04",
+    "EXT-05",
+    "EXT-02"
+   ],
+   "tipo": "cubierta",
+   "split": "dev"
+  },
+  {
+   "q": "diferencia entre hallar el punto critico y el valor del maximo",
+   "esperadas": [
+    "EXT-05"
+   ],
+   "tipo": "cubierta",
+   "split": "test"
+  },
+  {
+   "q": "∂f/∂x qué es",
+   "esperadas": [
+    "PAR-01"
+   ],
+   "tipo": "cubierta",
+   "split": "dev"
+  },
+  {
+   "q": "qué significa ∇f",
+   "esperadas": [
+    "DIR-03"
+   ],
+   "tipo": "cubierta",
+   "split": "test"
+  },
+  {
+   "q": "no entiendo lo de D_u f",
+   "esperadas": [
+    "DIR-02",
+    "DIR-01"
+   ],
+   "tipo": "cubierta",
+   "split": "dev"
+  },
+  {
+   "q": "receta de keke de naranja",
+   "esperadas": [],
+   "tipo": "fuera_de_tema",
+   "split": "dev"
+  },
+  {
+   "q": "quien gano el mundial",
+   "esperadas": [],
+   "tipo": "fuera_de_tema",
+   "split": "test"
+  },
+  {
+   "q": "cual es la capital de Francia",
+   "esperadas": [],
+   "tipo": "fuera_de_tema",
+   "split": "dev"
+  },
+  {
+   "q": "como configuro el wifi del router",
+   "esperadas": [],
+   "tipo": "fuera_de_tema",
+   "split": "test"
+  },
+  {
+   "q": "resumen de la revolucion francesa",
+   "esperadas": [],
+   "tipo": "fuera_de_tema",
+   "split": "dev"
+  },
+  {
+   "q": "hola, buenas tardes",
+   "esperadas": [],
+   "tipo": "fuera_de_tema",
+   "split": "test"
+  },
+  {
+   "q": "cuanto es 2+2",
+   "esperadas": [],
+   "tipo": "fuera_de_tema",
+   "split": "dev"
+  },
+  {
+   "q": "derivación implícita",
+   "esperadas": [],
+   "tipo": "sin_cobertura",
+   "split": "test"
+  },
+  {
+   "q": "como se usa la regla de L'Hôpital",
+   "esperadas": [],
+   "tipo": "sin_cobertura",
+   "split": "dev"
+  },
+  {
+   "q": "concavidad y puntos de inflexión",
+   "esperadas": [],
+   "tipo": "sin_cobertura",
+   "split": "test"
+  },
+  {
+   "q": "teorema de Rolle",
+   "esperadas": [],
+   "tipo": "sin_cobertura",
+   "split": "dev"
+  },
+  {
+   "q": "problema de optimización de una caja con volumen maximo",
+   "esperadas": [],
+   "tipo": "sin_cobertura",
+   "split": "test"
+  },
+  {
+   "q": "derivada del seno y del coseno",
+   "esperadas": [],
+   "tipo": "sin_cobertura",
+   "split": "dev"
+  },
+  {
+   "q": "integración por partes",
+   "esperadas": [],
+   "tipo": "sin_cobertura",
+   "split": "test"
+  },
+  {
+   "q": "series de Taylor",
+   "esperadas": [],
+   "tipo": "sin_cobertura",
+   "split": "dev"
+  },
+  {
+   "q": "criterio de convergencia de series",
+   "esperadas": [],
+   "tipo": "sin_cobertura",
+   "split": "test"
+  },
+  {
+   "q": "cómo resuelvo una integral doble",
+   "esperadas": [],
+   "tipo": "sin_cobertura",
+   "split": "dev"
+  },
+  {
+   "q": "ecuaciones diferenciales de primer orden",
+   "esperadas": [],
+   "tipo": "sin_cobertura",
+   "split": "test"
+  },
+  {
+   "q": "dominio de una pagina web",
+   "esperadas": [],
+   "tipo": "fuera_de_tema",
+   "split": "dev"
+  },
+  {
+   "q": "limite de velocidad en la autopista",
+   "esperadas": [],
+   "tipo": "fuera_de_tema",
+   "split": "test"
+  }
+ ]
+}

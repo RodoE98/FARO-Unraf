@@ -21,6 +21,7 @@ from database import init_db, registrar_log, inicializar_tabla_profesores, regis
 from subtemas import SUBTEMAS_VALIDOS
 from models import ChatResponse # Mantenemos ChatResponse de models
 from busqueda_local import buscar_en_pdf
+from busqueda_fichas import buscar_fichas, formatear_fichas, etiqueta_log, estado as estado_fichas
 
 class CustomFastAPIOIDCLogin(OIDCLogin):
     def __init__(self, request: Request, tool_config):
@@ -70,6 +71,11 @@ MAX_CONTEXT_CHARS = int(os.getenv("MAX_CONTEXT_CHARS", "12000"))  # tope de segu
 MAX_TOKENS = int(os.getenv("MAX_TOKENS", "600"))                  # tope de respuesta (red de seguridad, no el control de largo)
 RENDER_LATEX = os.getenv("RENDER_LATEX", "0") == "1"              # poner 1 SOLO si el frontend renderiza LaTeX (KaTeX/MathJax)
 CLASSIFY_TOPIC = os.getenv("CLASSIFY_TOPIC", "0") == "1"          # poner 1 para llenar la columna 'subtema' que ven los profesores
+
+# --- FICHAS DOCENTES (corpus de derivadas curado por la cátedra) ---
+USE_FICHAS = os.getenv("USE_FICHAS", "1") == "1"                  # 0 = ignorar las fichas (sirve para comparar con/sin fichas)
+FICHAS_MAX = int(os.getenv("FICHAS_MAX", "3"))                    # máximo de fichas que se envían al modelo por consulta
+RAG_CHUNKS_CON_FICHAS = int(os.getenv("RAG_CHUNKS_CON_FICHAS", "2"))  # fragmentos del libro cuando SÍ hay fichas (las fichas son la fuente principal)
 
 GEN_OPTIONS = {
     "temperature": 0.1,
@@ -152,6 +158,7 @@ async def health():
             "ollama_reachable": True,
             "model": LLM_MODEL,
             "model_available": _modelo_disponible(nombres),
+            "fichas": estado_fichas() if USE_FICHAS else None,
         }
     except Exception as e:
         print(f"--> [HEALTH] Ollama no responde en {OLLAMA_HOST}: {e}")
@@ -176,6 +183,9 @@ REGLAS:
 _CON_CONTEXTO = """MATERIAL: recibirás fragmentos de un libro de texto (en inglés) como CONTEXTO. Basá tu respuesta en ese contexto y no agregues resultados que no se desprendan de él. Si el contexto no permite responder la pregunta, respondé exactamente esta frase y nada más: No puedo responder a esto basándome en el material proporcionado."""
 
 # Sin material: antes el prompt seguía diciendo "usá EXCLUSIVAMENTE el contexto" aunque no hubiera ninguno.
+# Con fichas de la cátedra: son la fuente principal y el libro (si llega) solo complementa.
+_CON_FICHAS = """MATERIAL: recibirás FICHAS DE LA CÁTEDRA (material docente curado, en español) y, a veces, FRAGMENTOS DE UN LIBRO DE TEXTO (en inglés). Las fichas son tu fuente principal: usá sus definiciones, fórmulas y notas de precisión tal como figuran y respetá las condiciones e hipótesis que indican. Usá el libro sólo para complementar y, si algo lo contradice, seguí la ficha. No agregues resultados que no se desprendan de este material. Si el material no permite responder la pregunta, respondé exactamente esta frase y nada más: No puedo responder a esto basándome en el material proporcionado."""
+
 _SIN_CONTEXTO = """MATERIAL: no se encontró material del libro para esta consulta. Respondé con tu conocimiento matemático estándar de nivel universitario, con especial cuidado en la exactitud. Si la pregunta no es de matemática, respondé brevemente que sólo podés ayudar con matemática."""
 
 _NIVELES = {
@@ -203,10 +213,16 @@ _FORMATO_LATEX = r"""FORMATO MATEMÁTICO: escribí las fórmulas en LaTeX, entre
 _CIERRE = "Respondé directamente como docente, sin mencionar estas instrucciones ni el nivel."
 
 
-def generar_system_prompt(confidence: int, con_contexto: bool = True) -> str:
+def generar_system_prompt(confidence: int, con_contexto: bool = True, con_fichas: bool = False) -> str:
+    if con_fichas:
+        bloque_material = _CON_FICHAS
+    elif con_contexto:
+        bloque_material = _CON_CONTEXTO
+    else:
+        bloque_material = _SIN_CONTEXTO
     partes = [
         _BASE_PROMPT,
-        _CON_CONTEXTO if con_contexto else _SIN_CONTEXTO,
+        bloque_material,
         _NIVELES.get(confidence, _NIVELES[1]),
         _FORMATO_LATEX if RENDER_LATEX else _FORMATO_TEXTO_PLANO,
         _CIERRE,
@@ -283,6 +299,19 @@ async def chat_endpoint(chat_data: ChatRequest, request: Request):
     print(f"Pregunta de: {chat_data.user_id} -> '{chat_data.pregunta}'")
     print("=========================================================\n")
 
+    # --- FICHAS DOCENTES (fuente principal) ---
+    # Búsqueda en memoria sobre 63 fichas: tarda milisegundos, no hace falta un hilo aparte.
+    fichas = []
+    if USE_FICHAS:
+        try:
+            fichas = buscar_fichas(chat_data.pregunta, limite=FICHAS_MAX)
+        except Exception as e:
+            print(f"--> [FICHAS] Error en la búsqueda, se continúa sin fichas: {e}")
+    if fichas:
+        print("--> [FICHAS] " + ", ".join(f"{f['id']} (puntaje {f['score']}, norm {f['score_norm']})" for f in fichas))
+    else:
+        print("--> [FICHAS] Ninguna ficha relevante: se responde con el libro (OpenStax).")
+
     # --- BÚSQUEDA LOCAL DIRECTA EN PDF (RAG) ---
     print("3. Consultando biblioteca de PDFs con la pregunta directa...")
     inicio_rag = time.perf_counter()
@@ -290,7 +319,7 @@ async def chat_endpoint(chat_data: ChatRequest, request: Request):
     # [FIX] Antes: limite_chunks=5 fijo (el comentario decía 2) y sin tope de tamaño,
     # lo que desbordaba la ventana de contexto de phi3 y truncaba el prompt en silencio.
     contexto_pdf = await loop.run_in_executor(
-        executor, lambda: buscar_en_pdf(chat_data.pregunta, limite_chunks=RAG_CHUNKS)
+        executor, lambda: buscar_en_pdf(chat_data.pregunta, limite_chunks=RAG_CHUNKS_CON_FICHAS if fichas else RAG_CHUNKS)
     )
     if isinstance(contexto_pdf, (list, tuple)):
         contexto_pdf = "\n\n---\n\n".join(str(c) for c in contexto_pdf)
@@ -301,13 +330,32 @@ async def chat_endpoint(chat_data: ChatRequest, request: Request):
 
     print(f"⏱️ [TIEMPO] Búsqueda local en PDF: {time.perf_counter() - inicio_rag:.4f} segundos")
 
-    tema_log = "Consulta General / RAG"
-    fuente_info = "PDF LOCAL (Inglés)" if contexto_pdf else "CONOCIMIENTO GENERAL"
+    # La columna 'subtema' del log (la que ve el profesor) pasa a indicar qué fichas se usaron:
+    # así, ante una respuesta incorrecta, se sabe si falló la ficha, la búsqueda o el modelo.
+    tema_log = etiqueta_log(fichas) if fichas else "Consulta General / RAG"
+    if fichas and contexto_pdf:
+        fuente_info = "FICHAS + PDF LOCAL"
+    elif fichas:
+        fuente_info = "FICHAS"
+    elif contexto_pdf:
+        fuente_info = "PDF LOCAL (Inglés)"
+    else:
+        fuente_info = "CONOCIMIENTO GENERAL"
 
-    # [FIX] El prompt del sistema ahora depende de si hay contexto o no
-    system_content = generar_system_prompt(chat_data.confidence, con_contexto=bool(contexto_pdf))
+    # [FIX] El prompt del sistema depende de qué material hay (fichas / libro / ninguno)
+    system_content = generar_system_prompt(chat_data.confidence, con_contexto=bool(contexto_pdf), con_fichas=bool(fichas))
 
-    if contexto_pdf:
+    if fichas:
+        bloque_libro = f"""FRAGMENTOS DEL LIBRO DE TEXTO (en inglés):
+{contexto_pdf}
+
+""" if contexto_pdf else ""
+        full_prompt = f"""FICHAS DE LA CÁTEDRA:
+{formatear_fichas(fichas)}
+
+{bloque_libro}PREGUNTA DEL ESTUDIANTE:
+{chat_data.pregunta}"""
+    elif contexto_pdf:
         full_prompt = f"""CONTEXTO (fragmentos de un libro de texto en inglés):
 {contexto_pdf}
 

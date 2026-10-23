@@ -97,6 +97,34 @@ Se pueden cambiar sin tocar el código, por ejemplo `LLM_MODEL=qwen2.5:7b ./inic
 | `RENDER_LATEX` | `1` con `iniciar_backend.sh` (`0` si se corre `uvicorn` a mano) | El modelo escribe las fórmulas en LaTeX (`$...$`). El frontend ya lo renderiza con KaTeX |
 | `CLASSIFY_TOPIC` | `0` | Poner `1` para completar la columna `subtema` del panel docente |
 | `OLLAMA_HOST` | `http://localhost:11434` | Dirección de Ollama |
+| `USE_FICHAS` | `1` | `0` ignora las fichas docentes (sirve para comparar respuestas con y sin fichas) |
+| `FICHAS_MAX` | `3` | Máximo de fichas que se envían al modelo por consulta |
+| `RAG_CHUNKS_CON_FICHAS` | `2` | Fragmentos del libro que se agregan cuando sí hay fichas |
+
+## Fichas docentes (corpus de derivadas)
+
+El asistente responde en primer lugar con las **fichas curadas por la cátedra** (`backend/fichas/fichas_derivadas.json`: 63 fichas, versión 0.4) y usa el libro de OpenStax sólo como complemento.
+
+**Qué pasa con cada consulta:**
+
+1. Se buscan fichas relevantes (en memoria, en milisegundos; ver `busqueda_fichas.py`).
+2. Si hay, el modelo recibe hasta 3 fichas (fuente principal) más 2 fragmentos del libro (complemento).
+3. Si no hay ninguna ficha confiable, se responde como antes, sólo con el libro. Esto ocurre con preguntas fuera de tema y con los temas que el propio documento declara **sin cobertura** (derivación implícita, concavidad e inflexión, regla de L'Hôpital, Rolle, optimización, derivadas trigonométricas, estudio completo de funciones).
+4. La columna "Eje temático" del panel docente muestra las fichas usadas, por ejemplo `DER-08 Regla de la cadena (+ PAR-10, PAR-11)`. Ante una respuesta incorrecta permite distinguir si falló la ficha, la búsqueda o el modelo.
+
+**Actualizar el corpus** cuando la cátedra entregue una versión nueva del documento (desde `backend/`):
+
+```bash
+pip install python-docx              # sólo para este script; el servidor no lo necesita
+# 1. Reemplazar el .docx dentro de backend/fichas/ (o pasar su ruta como argumento)
+python scripts/build_fichas.py       # regenera fichas/fichas_derivadas.json
+python scripts/check_fichas.py       # mide la calidad de la búsqueda
+git add fichas && git commit -m "Actualizar fichas" && git push
+```
+
+`build_fichas.py` valida el documento y falla, en lugar de generar un JSON incompleto, si el índice no coincide con las fichas, falta un campo obligatorio, cambia la cantidad de fichas declarada por sección o aparece una etiqueta desconocida. `check_fichas.py` además avisa si el apéndice del documento declara un tema sin cobertura que no tiene regla en `busqueda_fichas.TEMAS_SIN_COBERTURA`.
+
+**Calidad de la búsqueda.** Sobre 83 preguntas de prueba (`scripts/preguntas_eval_fichas.json`), la ficha correcta queda en primer lugar en el 84 % de los casos y entre las 3 primeras en el 90-94 %; las preguntas fuera de tema o sin cobertura se rechazan correctamente en el 100 %. Son preguntas escritas por el equipo de desarrollo, no de alumnos reales: conviene agregar ahí preguntas reales (con la ficha esperada) a medida que aparezcan en los logs. Limitación conocida: la búsqueda es por palabras, así que formulaciones muy alejadas del texto de las fichas (por ejemplo "e a la x" en lugar de "exponencial") pueden no encontrar la ficha.
 
 ## Solución de problemas
 
@@ -109,6 +137,7 @@ curl -s localhost:8000/api/health
 - **`Connection refused`**: el backend no está corriendo. Ejecutar `./iniciar_backend.sh` y leer el error que imprime (o `tail -n 50 /workspace/logs/backend.log`).
 - **Responde JSON o `{"detail":"Not Found"}`, pero la URL del proxy no abre**: falta exponer el puerto 8000 (ver requisito previo).
 - **`"model_available": false`**: el modelo no está instalado. Ejecutar `ollama pull qwen2.5:14b` y reiniciar con `./iniciar_backend.sh`.
+- **Las respuestas no usan las fichas**: revisar `curl -s localhost:8000/api/health`. Si `fichas` es `null`, está `USE_FICHAS=0`; si el log dice `No se pudo cargar ... fichas_derivadas.json`, falta el archivo (`git pull`).
 - **`{"detail":"Not Found"}` en `/api/health`**: el Pod tiene un `main.py` viejo. Ejecutar `git pull origin main` y `./iniciar_backend.sh`.
 
 ---
