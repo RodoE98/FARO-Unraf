@@ -97,6 +97,7 @@ Se pueden cambiar sin tocar el código, por ejemplo `LLM_MODEL=qwen2.5:7b ./inic
 | `RENDER_LATEX` | `1` con `iniciar_backend.sh` (`0` si se corre `uvicorn` a mano) | El modelo escribe las fórmulas en LaTeX (`$...$`). El frontend ya lo renderiza con KaTeX |
 | `CLASSIFY_TOPIC` | `0` | Poner `1` para completar la columna `subtema` del panel docente |
 | `OLLAMA_HOST` | `http://localhost:11434` | Dirección de Ollama |
+| `OLLAMA_NUM_PARALLEL` | `4` | Consultas que Ollama atiende a la vez (cada una reserva ~1.5 GB de VRAM); con GPU de 24 GB o menos, usar 2 |
 | `USE_FICHAS` | `1` | `0` ignora las fichas docentes (sirve para comparar respuestas con y sin fichas) |
 | `FICHAS_MAX` | `3` | Máximo de fichas que se envían al modelo por consulta |
 | `RAG_CHUNKS_CON_FICHAS` | `2` | Fragmentos del libro que se agregan cuando sí hay fichas |

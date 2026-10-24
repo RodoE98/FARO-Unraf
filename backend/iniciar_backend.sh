@@ -14,18 +14,24 @@ cd "$(dirname "$0")" || exit 1
 export LLM_MODEL="${LLM_MODEL:-qwen2.5:14b}"
 # El frontend ya renderiza LaTeX (remark-math + rehype-katex), asi que el modelo puede escribir $...$
 export RENDER_LATEX="${RENDER_LATEX:-1}"
+# Atiende varias consultas a la vez (por defecto Ollama las pone en fila). Cada "ranura" reserva ~1.5 GB de VRAM
+# con num_ctx 8192: con 4 ranuras la A40 (48 GB) sobra. Si se usa una GPU de 24 GB o menos, bajar a 2.
+export OLLAMA_NUM_PARALLEL="${OLLAMA_NUM_PARALLEL:-4}"
+# Python guarda los print() en un buffer cuando la salida va a un archivo: sin esto, las lineas con tiempos
+# y fichas usadas aparecian tarde o nunca en backend.log.
+export PYTHONUNBUFFERED=1
 # Los modelos se guardan en /workspace (volumen persistente) para no re-descargarlos (~9 GB) en cada reinicio
 export OLLAMA_MODELS="${OLLAMA_MODELS:-/workspace/ollama-models}"
 LOG_DIR="${LOG_DIR:-/workspace/logs}"
 mkdir -p "$LOG_DIR" "$OLLAMA_MODELS"
 
-echo "== 1/6 Dependencias de Python"
+echo "== 1/7 Dependencias de Python"
 if ! python3 -c "import fastapi, uvicorn, ollama, pylti1p3" 2>/dev/null; then
     echo "Faltan paquetes, instalando requirements.txt..."
     pip install -r requirements.txt || { echo "ERROR: fallo pip install"; exit 1; }
 fi
 
-echo "== 2/6 Ollama"
+echo "== 2/7 Ollama"
 if ! command -v ollama >/dev/null 2>&1; then
     bash ./instalar_ollama.sh || { echo "ERROR: fallo la instalacion de Ollama"; exit 1; }
 fi
@@ -42,13 +48,13 @@ if ! curl -sf http://localhost:11434/api/tags >/dev/null; then
     exit 1
 fi
 
-echo "== 3/6 Modelo $LLM_MODEL"
+echo "== 3/7 Modelo $LLM_MODEL"
 if ! ollama list | awk 'NR>1 {print $1}' | grep -qx "$LLM_MODEL"; then
     echo "Descargando $LLM_MODEL (la primera vez son ~9 GB, puede demorar)..."
     ollama pull "$LLM_MODEL" || { echo "ERROR: fallo la descarga del modelo"; exit 1; }
 fi
 
-echo "== 4/6 Claves LTI"
+echo "== 4/7 Claves LTI"
 # main.py carga private.key / public.key (segun lti_config.json) al importarse:
 # si faltan, el backend se cae al arrancar. Solo se generan si no existen.
 if [ ! -f private.key ] || [ ! -f public.key ]; then
@@ -64,13 +70,13 @@ open("public.key", "wb").write(k.public_key().public_bytes(
 PY
 fi
 
-echo "== 5/6 Backend (uvicorn, puerto 8000)"
+echo "== 5/7 Backend (uvicorn, puerto 8000)"
 pkill -f "uvicorn main:app" 2>/dev/null
 sleep 1
-nohup python3 -m uvicorn main:app --host 0.0.0.0 --port 8000 > "$LOG_DIR/backend.log" 2>&1 &
+nohup python3 -u -m uvicorn main:app --host 0.0.0.0 --port 8000 > "$LOG_DIR/backend.log" 2>&1 &
 BACKEND_PID=$!
 
-echo "== 6/6 Verificando que responda"
+echo "== 6/7 Verificando que responda"
 HEALTH=""
 for i in $(seq 1 90); do
     HEALTH=$(curl -sf http://localhost:8000/api/health) && break
@@ -88,6 +94,17 @@ if [ -z "$HEALTH" ]; then
 fi
 
 echo "Health: $HEALTH"
+
+echo "== 7/7 Cargando el modelo en la GPU (la primera vez desde un reinicio puede demorar)"
+# El servidor web responde antes de que el modelo termine de cargarse. Se hace una consulta minima (1 token)
+# con el mismo num_ctx que usa el backend: carga el modelo y lo deja listo, asi la primera pregunta de un alumno no espera.
+INICIO_CARGA=$(date +%s)
+if curl -sf --max-time 600 http://localhost:11434/api/generate \
+    -d "{\"model\":\"$LLM_MODEL\",\"prompt\":\"Hola\",\"stream\":false,\"keep_alive\":-1,\"options\":{\"num_predict\":1,\"num_ctx\":${NUM_CTX:-8192}}}" >/dev/null; then
+    echo "Modelo cargado y listo ($(( $(date +%s) - INICIO_CARGA )) s)."
+else
+    echo "AVISO: no se pudo precalentar el modelo; la primera consulta sera lenta. Revisar $LOG_DIR/ollama.log"
+fi
 echo ""
 echo "============================================================"
 echo " BACKEND LISTO"
