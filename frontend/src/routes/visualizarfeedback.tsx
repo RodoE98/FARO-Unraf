@@ -20,6 +20,7 @@ interface ChatLogAlumno {
   pregunta_original: string; // Coincide con tu Backend
   respuesta_bot: string;      // Coincide con tu Backend
   timestamp: string;
+  session_id?: string | null;
 }
 
 export const Route = createFileRoute("/visualizarfeedback")({
@@ -109,6 +110,7 @@ function VisualizarLogsAlumnos() {
                   {/* Encabezado del log */}
                   <div className="flex justify-between items-center border-b border-slate-100 pb-2 text-xs text-slate-400 font-medium">
                     <span>Eje Temático: <strong className="text-indigo-600 uppercase">{log.subtema || "General"}</strong></span>
+                    <span>Sesión: <strong className="font-mono text-slate-600">{log.session_id || "—"}</strong></span>
                     <span>{log.timestamp ? new Date(log.timestamp).toLocaleString("es-AR") : "Sin fecha"}</span>
                   </div>
 

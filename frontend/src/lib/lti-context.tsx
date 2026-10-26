@@ -23,6 +23,12 @@ type LtiContextValue = {
   messages: ChatMessage[];
   addMessage: (m: Omit<ChatMessage, "id">) => ChatMessage;
   resetMessages: () => void;
+  /** Código de la conversación actual (ej. FARO-7K3Q9X). Cambia en cada conversación nueva. */
+  sessionId: string;
+  /** Empieza una conversación nueva: vacía el chat y genera un código nuevo. */
+  newSession: () => void;
+  /** Retoma una conversación guardada (por ejemplo desde otro dispositivo): adopta su código y carga sus mensajes. */
+  loadSession: (code: string, msgs: { role: "user" | "ai"; text: string }[]) => void;
 };
 
 // Simulated LTI launch payload
@@ -41,6 +47,19 @@ const WELCOME: ChatMessage = {
 
 const LtiContext = createContext<LtiContextValue | null>(null);
 
+// Sin 0/O/1/I/L para que se pueda dictar o copiar a mano sin confundirse.
+const ALFABETO_CODIGO = "ABCDEFGHJKMNPQRSTUVWXYZ23456789";
+
+function generarCodigoSesion(): string {
+  const bytes = new Uint8Array(6);
+  try {
+    crypto.getRandomValues(bytes);
+  } catch {
+    for (let i = 0; i < bytes.length; i++) bytes[i] = Math.floor(Math.random() * 256);
+  }
+  return "FARO-" + Array.from(bytes, (b) => ALFABETO_CODIGO[b % ALFABETO_CODIGO.length]).join("");
+}
+
 function uid() {
   return `${Date.now()}-${Math.random().toString(36).slice(2, 8)}`;
 }
@@ -48,6 +67,8 @@ function uid() {
 export function LtiProvider({ children }: { children: ReactNode }) {
   const [user, setUser] = useState<LtiUser>(DEFAULT_LTI_USER);
   const [messages, setMessages] = useState<ChatMessage[]>([WELCOME]);
+  // Un código por conversación: se genera al abrir la página y cada vez que se pulsa "Nueva conversación".
+  const [sessionId, setSessionId] = useState<string>(() => generarCodigoSesion());
 
   const addMessage = useCallback((m: Omit<ChatMessage, "id">): ChatMessage => {
     const msg: ChatMessage = { ...m, id: uid() };
@@ -57,9 +78,19 @@ export function LtiProvider({ children }: { children: ReactNode }) {
 
   const resetMessages = useCallback(() => setMessages([WELCOME]), []);
 
+  const newSession = useCallback(() => {
+    setMessages([WELCOME]);
+    setSessionId(generarCodigoSesion());
+  }, []);
+
+  const loadSession = useCallback((code: string, msgs: { role: "user" | "ai"; text: string }[]) => {
+    setMessages([WELCOME, ...msgs.map((m) => ({ id: uid(), role: m.role, text: m.text }))]);
+    setSessionId(code);
+  }, []);
+
   const value = useMemo(
-    () => ({ user, setUser, messages, addMessage, resetMessages }),
-    [user, messages, addMessage, resetMessages],
+    () => ({ user, setUser, messages, addMessage, resetMessages, sessionId, newSession, loadSession }),
+    [user, messages, addMessage, resetMessages, sessionId, newSession, loadSession],
   );
 
   return <LtiContext.Provider value={value}>{children}</LtiContext.Provider>;

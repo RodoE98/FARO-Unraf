@@ -2,6 +2,7 @@ from fastapi import FastAPI, HTTPException, Request, Form
 from fastapi.responses import RedirectResponse, StreamingResponse
 from fastapi.middleware.cors import CORSMiddleware
 import hashlib
+import re
 from pydantic import BaseModel, Field
 from typing import Optional, List
 import os
@@ -109,6 +110,13 @@ class ChatRequest(BaseModel):
     confidence: int = Field(..., ge=1, le=3)
     # Mensajes previos de esta conversación (los más viejos primero). Opcional: sin él, todo funciona como antes.
     historial: List[MensajeHistorial] = Field(default_factory=list)
+    # Código de la conversación (lo genera el frontend al abrir la página y con "Nueva conversación"). Opcional.
+    session_id: Optional[str] = None
+
+def limpiar_session_id(valor) -> Optional[str]:
+    """Sólo letras, números y guiones (4-40 caracteres): cualquier otra cosa se descarta en vez de guardarse en la base."""
+    v = (valor or "").strip().upper()
+    return v if re.fullmatch(r"[A-Z0-9-]{4,40}", v) else None
 
 def preparar_historial(historial) -> list:
     """Convierte el historial del frontend en mensajes para Ollama, respetando los topes de tamaño.
@@ -331,11 +339,12 @@ async def chat_endpoint(chat_data: ChatRequest, request: Request):
     user_hash = hashear_usuario(chat_data.user_id)
 
     print("\n================ DATO RECIBIDO DEL FRONT ================")
-    print(f"Pregunta de: {chat_data.user_id} -> '{chat_data.pregunta}'")
+    print(f"Pregunta de: {chat_data.user_id} (sesión {limpiar_session_id(chat_data.session_id) or '-'}) -> '{chat_data.pregunta}'")
     print("=========================================================\n")
 
     # --- FICHAS DOCENTES (fuente principal) ---
     # Búsqueda en memoria sobre 63 fichas: tarda milisegundos, no hace falta un hilo aparte.
+    session_id = limpiar_session_id(chat_data.session_id)
     historial = preparar_historial(chat_data.historial)
     print(f"--> [HISTORIAL] {len(historial)} mensajes previos ({sum(len(m['content']) for m in historial)} caracteres)")
 
@@ -484,7 +493,8 @@ PREGUNTA DEL ESTUDIANTE:
                 chat_data.role,
                 tema,
                 chat_data.pregunta,
-                respuesta_completa
+                respuesta_completa,
+                session_id
             )
         except Exception as e:
             print(f"ERROR AL REGISTRAR LOG: {e}")
@@ -593,6 +603,29 @@ async def guardar_feedback_profesor(data: FeedbackProfesorRequest):
             detail=f"Error interno al procesar el guardado en la base de datos: {str(e)}"
         )
 
+@app.get("/api/sesion/{codigo}")
+async def obtener_sesion(codigo: str):
+    """Devuelve la conversación guardada bajo un código de sesión, para retomarla desde otro dispositivo.
+    Sólo devuelve preguntas y respuestas (nunca el identificador del alumno)."""
+    sid = limpiar_session_id(codigo)
+    if not sid:
+        raise HTTPException(status_code=400, detail="Código inválido.")
+    try:
+        conn = get_connection()
+        filas = conn.execute(
+            "SELECT pregunta, respuesta FROM chat_logs WHERE session_id = ? ORDER BY id ASC", (sid,)
+        ).fetchall()
+        conn.close()
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"Error al leer la conversación: {str(e)}")
+    if not filas:
+        raise HTTPException(status_code=404, detail="No encontré ninguna conversación con ese código.")
+    mensajes = []
+    for pregunta, respuesta in filas:
+        mensajes.append({"role": "user", "text": pregunta})
+        mensajes.append({"role": "ai", "text": respuesta})
+    return {"session_id": sid, "mensajes": mensajes}
+
 @app.get("/api/logs-maestros")
 async def obtener_logs_para_profesores(email_profesor: str):
     # Validamos primero con tu función local si es un profesor activo
@@ -603,7 +636,7 @@ async def obtener_logs_para_profesores(email_profesor: str):
         conn = get_connection()
         cursor = conn.cursor()
         # Traemos el historial de lo que preguntaron los alumnos
-        cursor.execute("SELECT id, user_id, course_id, role, subtema, pregunta, respuesta, timestamp FROM chat_logs ORDER BY id DESC")
+        cursor.execute("SELECT id, user_id, course_id, role, subtema, pregunta, respuesta, timestamp, session_id FROM chat_logs ORDER BY id DESC")
         rows = cursor.fetchall()
         conn.close()
         
@@ -617,7 +650,8 @@ async def obtener_logs_para_profesores(email_profesor: str):
                 "subtema": row[4],
                 "pregunta_original": row[5], # Mapeado para que Lovable lo lea directo
                 "respuesta_bot": row[6],      # Mapeado para que Lovable lo lea directo
-                "timestamp": row[7]
+                "timestamp": row[7],
+                "session_id": row[8]
             })
         return logs
     except Exception as e:

@@ -34,17 +34,23 @@ def init_db():
             timestamp TEXT
         )
     """)
+    # Código de sesión: identifica cada conversación (lo muestra el frontend y el alumno lo usa en actividades/encuestas).
+    # Las bases creadas antes de este cambio no tienen la columna: se agrega sin tocar los datos existentes.
+    columnas = [fila[1] for fila in cursor.execute("PRAGMA table_info(chat_logs)").fetchall()]
+    if "session_id" not in columnas:
+        cursor.execute("ALTER TABLE chat_logs ADD COLUMN session_id TEXT")
+    cursor.execute("CREATE INDEX IF NOT EXISTS idx_chat_logs_session ON chat_logs(session_id)")
     conn.commit()
     conn.close()
 
-def registrar_log(user_id, course_id, role, subtema, pregunta, respuesta):
+def registrar_log(user_id, course_id, role, subtema, pregunta, respuesta, session_id=None):
     """Guarda las consultas de los alumnos de manera segura de forma posicional."""
     conn = get_connection()
     cursor = conn.cursor()
     try:
         cursor.execute("""
-            INSERT INTO chat_logs (user_id, course_id, role, subtema, pregunta, respuesta, timestamp)
-            VALUES (?, ?, ?, ?, ?, ?, ?)
+            INSERT INTO chat_logs (user_id, course_id, role, subtema, pregunta, respuesta, timestamp, session_id)
+            VALUES (?, ?, ?, ?, ?, ?, ?, ?)
         """, (
             str(user_id),
             str(course_id),
@@ -52,7 +58,8 @@ def registrar_log(user_id, course_id, role, subtema, pregunta, respuesta):
             str(subtema),
             str(pregunta),
             str(respuesta),
-            datetime.utcnow().isoformat()
+            datetime.utcnow().isoformat(),
+            session_id
         ))
         conn.commit()
         print("--> [DB SUCCESS] Registro de consulta de alumno guardado en logs_pedagogicos.db.")

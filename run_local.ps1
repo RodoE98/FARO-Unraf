@@ -5,6 +5,9 @@
 # No internet/Runpod needed. Everything runs locally.
 # ============================================================
 
+# Optional: run_local.bat -Model qwen2.5:7b   (needs a GPU with 8 GB+ of VRAM; default is the small phi3:mini)
+param([string]$Model = "phi3:mini")
+
 # Automatically find backend/ and frontend/ next to this script,
 # no matter where the FARO folder is placed on the computer.
 $ScriptDir    = Split-Path -Parent $MyInvocation.MyCommand.Path
@@ -62,10 +65,31 @@ if (-not $ollamaRunning) {
 # (default: qwen2.5:14b, meant for the Runpod GPU). A normal PC cannot run that,
 # so local mode keeps the small model. If your PC has a GPU with 8 GB+ of VRAM you can
 # try "qwen2.5:7b" here (and set $NumCtx = 8192, $RagChunks = 4, $MaxContextChars = 12000).
-$LlmModel        = "phi3:mini"
-$NumCtx          = 4096    # phi3:mini supports 4k tokens
-$RagChunks       = 2       # fewer book fragments so the prompt fits in the small context window
-$MaxContextChars = 5000
+$LlmModel        = $Model
+if ($LlmModel -like "phi3*") {
+    # Small model: 4k context. Everything that goes into the prompt is reduced so it fits
+    # (fichas + book + conversation history + the answer must all fit in NUM_CTX).
+    $NumCtx          = 4096
+    $RagChunks       = 2      # book fragments when there are no fichas
+    $RagChunksFichas = 1      # book fragments when there ARE fichas
+    $FichasMax       = 2
+    $MaxContextChars = 5000
+    $MaxTokens       = 700    # max answer length
+    $HistMensajes    = 4      # previous messages sent to the model (2 turns)
+    $HistChars       = 2500
+    $HistMsgChars    = 1200
+} else {
+    # Bigger model (e.g. qwen2.5:7b): same values as the Runpod setup
+    $NumCtx          = 8192
+    $RagChunks       = 4
+    $RagChunksFichas = 2
+    $FichasMax       = 3
+    $MaxContextChars = 12000
+    $MaxTokens       = 1000
+    $HistMensajes    = 6
+    $HistChars       = 6000
+    $HistMsgChars    = 2500
+}
 
 Write-Step "Checking $LlmModel model (this may take a while the first time)..."
 ollama pull $LlmModel
@@ -81,6 +105,13 @@ $env:NUM_CTX           = "$NumCtx"
 $env:RAG_CHUNKS        = "$RagChunks"
 $env:MAX_CONTEXT_CHARS = "$MaxContextChars"
 $env:RENDER_LATEX      = "1"
+$env:RAG_CHUNKS_CON_FICHAS      = "$RagChunksFichas"
+$env:FICHAS_MAX                 = "$FichasMax"
+$env:MAX_TOKENS                 = "$MaxTokens"
+$env:HISTORIAL_MAX_MENSAJES     = "$HistMensajes"
+$env:HISTORIAL_MAX_CHARS        = "$HistChars"
+$env:HISTORIAL_MSG_MAX_CHARS    = "$HistMsgChars"
+$env:PYTHONUNBUFFERED           = "1"
 
 # 5. Point frontend at local backend
 Write-Step "Configuring frontend to use local backend..."
@@ -97,7 +128,7 @@ Pop-Location
 
 # 7. Start backend in its own window
 Write-Step "Starting backend server..."
-Start-Process powershell -ArgumentList "-NoExit", "-Command", "cd '$BackendPath'; uvicorn main:app --host 0.0.0.0 --port 8000"
+Start-Process powershell -ArgumentList "-NoExit", "-Command", "cd '$BackendPath'; python -m uvicorn main:app --host 0.0.0.0 --port 8000"
 
 # 8. Install frontend dependencies
 Write-Step "Installing frontend dependencies..."
@@ -115,6 +146,9 @@ Write-Host " All set! Two new windows have opened." -ForegroundColor Green
 Write-Host " Wait a few seconds, then open your browser to:" -ForegroundColor Green
 Write-Host "     http://localhost:8080" -ForegroundColor Cyan
 Write-Host "============================================" -ForegroundColor Green
+Write-Host ""
+Write-Host "Each conversation shows its own code (FARO-XXXXXX) on the chat page;" -ForegroundColor Yellow
+Write-Host "use the 'Nueva conversacion' button to get a new one." -ForegroundColor Yellow
 Write-Host ""
 Write-Host "NOTE: Without a powerful GPU, responses can take" -ForegroundColor Yellow
 Write-Host "several minutes. This is normal, not a crash." -ForegroundColor Yellow

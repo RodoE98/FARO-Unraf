@@ -31,13 +31,18 @@ export const Route = createFileRoute("/chatbot")({
 });
 
 function StudentChat() {
-  const { user, messages, addMessage } = useLti();
+  const { user, messages, addMessage, sessionId, newSession, loadSession } = useLti();
   const [input, setInput] = useState("");
   const [streamedText, setStreamedText] = useState(""); // 👈 Nuevo estado para el texto en tiempo real
   
   // Nivel pedagógico estricto para conectar con main.py (1: Principiante, 2: Intermedio, 3: Avanzado)
   const [confidence, setConfidence] = useState<number>(1);
   const [saved, setSaved] = useState(false);
+  const [codigoCopiado, setCodigoCopiado] = useState(false);
+  // Retomar una conversación con su código (por ejemplo, desde otro dispositivo)
+  const [retomando, setRetomando] = useState(false);
+  const [codigoIngresado, setCodigoIngresado] = useState("");
+  const [errorCodigo, setErrorCodigo] = useState("");
   const scrollRef = useRef<HTMLDivElement>(null);
 
   useEffect(() => {
@@ -76,6 +81,7 @@ const send = async () => {
           pregunta: text,
           confidence: confidence, 
           historial,
+          session_id: sessionId,
         }),
       });
 
@@ -116,6 +122,52 @@ const send = async () => {
     }
   };
 
+  const copiarCodigo = async () => {
+    try {
+      await navigator.clipboard.writeText(sessionId);
+      setCodigoCopiado(true);
+      setTimeout(() => setCodigoCopiado(false), 2000);
+    } catch {
+      // Sin permiso de portapapeles: el código igual está a la vista para copiarlo a mano.
+    }
+  };
+
+  const nuevaConversacion = () => {
+    if (sending) return;
+    newSession();
+    setInput("");
+    setStreamedText("");
+  };
+
+  const retomarConversacion = async () => {
+    if (sending) return;
+    // Acepta "FARO-7K3Q9X" o solo "7K3Q9X"
+    let codigo = codigoIngresado.trim().toUpperCase();
+    if (/^[A-Z0-9]{6}$/.test(codigo)) codigo = `FARO-${codigo}`;
+    if (!/^[A-Z0-9-]{4,40}$/.test(codigo)) {
+      setErrorCodigo("El código no es válido. Tiene la forma FARO-XXXXXX.");
+      return;
+    }
+    setErrorCodigo("");
+    try {
+      const base = import.meta.env.VITE_API_URL ?? "";
+      const res = await fetch(`${base}/api/sesion/${encodeURIComponent(codigo)}`);
+      if (res.status === 404) {
+        setErrorCodigo("No encontré ninguna conversación con ese código.");
+        return;
+      }
+      if (!res.ok) throw new Error(`HTTP ${res.status}`);
+      const data = await res.json();
+      loadSession(data.session_id, data.mensajes);
+      setRetomando(false);
+      setCodigoIngresado("");
+      setInput("");
+      setStreamedText("");
+    } catch {
+      setErrorCodigo("No pude conectarme con el servidor. Probá de nuevo.");
+    }
+  };
+
   const save = () => {
     setSaved(true);
     setTimeout(() => setSaved(false), 2000);
@@ -137,6 +189,60 @@ return (
             Tu identificador anónimo:{" "}
             <span className="font-bold text-primary">#225</span>
           </p>
+          {/* Código de la conversación: el alumno lo anota en las actividades y encuestas para que se pueda vincular */}
+          <div className="mt-3 flex flex-wrap items-center gap-2 rounded-xl border border-outline-variant/60 bg-white/70 px-4 py-3">
+            <div className="flex flex-col mr-auto">
+              <span className="text-xs text-on-surface-variant">Código de esta conversación</span>
+              <span className="font-mono text-lg font-bold tracking-wider text-primary select-all">{sessionId}</span>
+            </div>
+            <button
+              type="button"
+              onClick={copiarCodigo}
+              className="inline-flex items-center gap-1 rounded-full border border-outline-variant px-3 py-2 text-sm text-on-surface-variant hover:bg-surface-container-highest"
+            >
+              <Icon name={codigoCopiado ? "check" : "content_copy"} />
+              {codigoCopiado ? "Copiado" : "Copiar"}
+            </button>
+            <button
+              type="button"
+              onClick={nuevaConversacion}
+              disabled={sending}
+              className="inline-flex items-center gap-1 rounded-full bg-primary px-4 py-2 text-sm font-medium text-on-primary disabled:opacity-50"
+            >
+              <Icon name="add_comment" />
+              Nueva conversación
+            </button>
+            <button
+              type="button"
+              onClick={() => { setRetomando((v) => !v); setErrorCodigo(""); }}
+              disabled={sending}
+              className="inline-flex items-center gap-1 rounded-full border border-outline-variant px-3 py-2 text-sm text-on-surface-variant hover:bg-surface-container-highest disabled:opacity-50"
+            >
+              <Icon name="login" />
+              Tengo un código
+            </button>
+            {retomando && (
+              <div className="basis-full flex flex-col gap-2 pt-2">
+                <div className="flex flex-wrap items-center gap-2">
+                  <input
+                    value={codigoIngresado}
+                    onChange={(e) => setCodigoIngresado(e.target.value)}
+                    onKeyDown={(e) => { if (e.key === "Enter") retomarConversacion(); }}
+                    placeholder="FARO-XXXXXX"
+                    className="min-w-0 flex-1 rounded-full border border-outline-variant bg-white px-4 py-2 font-mono uppercase tracking-wider outline-none focus:border-primary"
+                  />
+                  <button
+                    type="button"
+                    onClick={retomarConversacion}
+                    className="rounded-full bg-secondary px-4 py-2 text-sm font-medium text-on-secondary"
+                  >
+                    Retomar conversación
+                  </button>
+                </div>
+                {errorCodigo && <p className="text-sm text-red-600">{errorCodigo}</p>}
+              </div>
+            )}
+          </div>
         </section>
 
         {/* Chat */}

@@ -105,6 +105,16 @@ Se pueden cambiar sin tocar el código, por ejemplo `LLM_MODEL=qwen2.5:7b ./inic
 | `FICHAS_MAX` | `3` | Máximo de fichas que se envían al modelo por consulta |
 | `RAG_CHUNKS_CON_FICHAS` | `2` | Fragmentos del libro que se agregan cuando sí hay fichas |
 
+## Código de sesión
+
+Cada conversación tiene un código propio (ej. `FARO-7K3Q9X`) que se muestra en la pantalla del chat, con un botón para copiarlo. El alumno lo anota en las actividades y encuestas para que se puedan vincular con sus consultas.
+
+- Se genera al abrir la página y cada vez que se pulsa **Nueva conversación** (que además vacía el chat, así el modelo no mezcla conversaciones).
+- Se guarda en la columna `session_id` de `chat_logs` y aparece como "Sesión" en el panel docente. Es independiente de `user_id`.
+- **Retomar desde otro dispositivo:** el botón "Tengo un código" pide un código (`FARO-7K3Q9X` o sólo `7K3Q9X`), carga la conversación guardada y sigue con el mismo código. Usa `GET /api/sesion/<código>`, que devuelve sólo preguntas y respuestas. Cualquiera que conozca el código puede leer esa conversación; para el piloto alcanza, pero no es autenticación.
+- Las bases creadas antes de este cambio se actualizan solas al arrancar el backend (se agrega la columna; los datos no se tocan).
+- Para sacar todas las consultas de una conversación: `sqlite3 backend/logs_pedagogicos.db "select timestamp, pregunta, respuesta from chat_logs where session_id='FARO-7K3Q9X' order by id"`.
+
 ## Fichas docentes (corpus de derivadas)
 
 El asistente responde en primer lugar con las **fichas curadas por la cátedra** (`backend/fichas/fichas_derivadas.json`: 63 fichas, versión 0.4) y usa el libro de OpenStax sólo como complemento.
