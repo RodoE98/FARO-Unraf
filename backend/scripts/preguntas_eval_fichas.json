@@ -636,6 +636,151 @@
    "esperadas": [],
    "tipo": "fuera_de_tema",
    "split": "test"
+  },
+  {
+   "q": "Tengo que calcular la derivada direccional de f(x,y) = x² + xy + y² en el punto (1,1), en la dirección del vector (3,4). ¿Me podés ayudar a resolverlo y explicarme qué significa el resultado?",
+   "esperadas": [
+    "DIR-02",
+    "DIR-01"
+   ],
+   "tipo": "cubierta",
+   "split": "dev"
+  },
+  {
+   "q": "Estoy haciendo un ejercicio donde tengo que derivar f(x) = (3x+1)^5 y no sé cómo aplicar la regla de la cadena, ¿me explicás paso a paso cómo se hace?",
+   "esperadas": [
+    "DER-08"
+   ],
+   "tipo": "cubierta",
+   "split": "dev"
+  },
+  {
+   "q": "No entiendo para qué sirve el gradiente, ¿me podés explicar qué representa en un punto de una superficie y hacia dónde apunta?",
+   "esperadas": [
+    "DIR-03",
+    "DIR-04"
+   ],
+   "tipo": "cubierta",
+   "split": "dev"
+  },
+  {
+   "q": "Tengo la función z = x²y + y³ y me piden calcular las derivadas parciales respecto de x y de y en el punto (1,2), ¿cómo se hace?",
+   "esperadas": [
+    "PAR-01",
+    "PAR-02"
+   ],
+   "tipo": "cubierta",
+   "split": "dev"
+  },
+  {
+   "q": "Me dijeron que una función puede ser continua en un punto pero no derivable, ¿me podés explicar por qué pasa eso con un ejemplo?",
+   "esperadas": [
+    "DER-11"
+   ],
+   "tipo": "cubierta",
+   "split": "dev"
+  },
+  {
+   "q": "Quiero entender cómo se calcula el límite de una función de dos variables cuando (x,y) tiende a (0,0) y por qué a veces no existe",
+   "esperadas": [
+    "MV-09",
+    "MV-12",
+    "MV-07",
+    "MV-10"
+   ],
+   "tipo": "cubierta",
+   "split": "dev"
+  },
+  {
+   "q": "En el parcial me pidieron hallar el plano tangente a la superficie z = x² + y² en el punto (1,1,2) y no sé por dónde empezar",
+   "esperadas": [
+    "PAR-06"
+   ],
+   "tipo": "cubierta",
+   "split": "dev"
+  },
+  {
+   "q": "Estoy preparando una cena con amigos y quería saber cómo puedo hacer una salsa para pasta que quede bien cremosa, ¿me ayudás con la receta?",
+   "esperadas": [],
+   "tipo": "fuera_de_tema",
+   "split": "dev"
+  },
+  {
+   "q": "Necesito resolver una integral doble sobre un rectángulo, ¿me podés explicar paso a paso cómo se plantea?",
+   "esperadas": [],
+   "tipo": "fuera_de_tema",
+   "split": "dev"
+  },
+  {
+   "q": "Tengo una duda con la regla del producto, tengo que derivar f(x) = x²·ln(x) y no sé si derivo cada uno por separado o cómo es",
+   "esperadas": [
+    "DER-04",
+    "DER-07B"
+   ],
+   "tipo": "cubierta",
+   "split": "test"
+  },
+  {
+   "q": "¿Me podés explicar la diferencia entre derivada parcial y derivada direccional? Siempre las confundo cuando hago los ejercicios",
+   "esperadas": [
+    "PAR-01",
+    "DIR-01"
+   ],
+   "tipo": "cubierta",
+   "split": "test"
+  },
+  {
+   "q": "Cómo hago para clasificar un punto crítico de una función de dos variables si el hessiano me dio negativo, ¿es silla?",
+   "esperadas": [
+    "EXT-04",
+    "EXT-03"
+   ],
+   "tipo": "cubierta",
+   "split": "test"
+  },
+  {
+   "q": "Me piden calcular la derivada de f(x) = (x²+1)/(x−3) y no entiendo cuándo se usa la regla del cociente ni cómo ordenar los términos",
+   "esperadas": [
+    "DER-05"
+   ],
+   "tipo": "cubierta",
+   "split": "test"
+  },
+  {
+   "q": "Cuál es el dominio de la función f(x,y) = raíz de (4 − x² − y²) y cómo lo represento en el plano, necesito entenderlo para el ejercicio de la guía",
+   "esperadas": [
+    "MV-02"
+   ],
+   "tipo": "cubierta",
+   "split": "test"
+  },
+  {
+   "q": "Si f tiene derivadas parciales continuas en un punto, ¿puedo asegurar que es diferenciable ahí? Mi profesora lo mencionó pero no me quedó claro",
+   "esperadas": [
+    "PAR-07"
+   ],
+   "tipo": "cubierta",
+   "split": "test"
+  },
+  {
+   "q": "Estoy resolviendo un problema de costos y me piden hallar el punto de equilibrio entre ingreso y costo, ¿cómo lo planteo?",
+   "esperadas": [
+    "PRE-18"
+   ],
+   "tipo": "cubierta",
+   "split": "test"
+  },
+  {
+   "q": "Quiero saber quién ganó el último mundial de fútbol y cómo le fue a la selección argentina en las eliminatorias, ¿me contás?",
+   "esperadas": [],
+   "tipo": "fuera_de_tema",
+   "split": "test"
+  },
+  {
+   "q": "Tengo que usar la regla de L'Hôpital para calcular un límite que da 0/0, ¿me explicás cómo se aplica paso a paso?",
+   "esperadas": [],
+   "tipo": "sin_cobertura",
+   "split": "test"
   }
  ]
 }

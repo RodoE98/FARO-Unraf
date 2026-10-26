@@ -3,7 +3,7 @@ from fastapi.responses import RedirectResponse, StreamingResponse
 from fastapi.middleware.cors import CORSMiddleware
 import hashlib
 from pydantic import BaseModel, Field
-from typing import Optional
+from typing import Optional, List
 import os
 import time
 from ollama import AsyncClient, Client
@@ -21,7 +21,7 @@ from database import init_db, registrar_log, inicializar_tabla_profesores, regis
 from subtemas import SUBTEMAS_VALIDOS
 from models import ChatResponse # Mantenemos ChatResponse de models
 from busqueda_local import buscar_en_pdf
-from busqueda_fichas import buscar_fichas, formatear_fichas, etiqueta_log, estado as estado_fichas
+from busqueda_fichas import buscar_fichas, buscar_fichas_repregunta, formatear_fichas, etiqueta_log, estado as estado_fichas
 
 class CustomFastAPIOIDCLogin(OIDCLogin):
     def __init__(self, request: Request, tool_config):
@@ -68,9 +68,16 @@ NUM_CTX = int(os.getenv("NUM_CTX", "8192"))                       # ventana de c
                                                                   # en todas las llamadas: si cambia, Ollama recarga el modelo.
 RAG_CHUNKS = int(os.getenv("RAG_CHUNKS", "4"))                    # fragmentos del PDF que se envían al modelo
 MAX_CONTEXT_CHARS = int(os.getenv("MAX_CONTEXT_CHARS", "12000"))  # tope de seguridad (~3000 tokens) para el contexto del PDF
-MAX_TOKENS = int(os.getenv("MAX_TOKENS", "600"))                  # tope de respuesta (red de seguridad, no el control de largo)
+MAX_TOKENS = int(os.getenv("MAX_TOKENS", "1000"))                 # tope de respuesta (red de seguridad, no el control de largo).
+                                                                  # Con 600 se cortaban los ejercicios resueltos con LaTeX a mitad de fórmula.
 RENDER_LATEX = os.getenv("RENDER_LATEX", "0") == "1"              # poner 1 SOLO si el frontend renderiza LaTeX (KaTeX/MathJax)
 CLASSIFY_TOPIC = os.getenv("CLASSIFY_TOPIC", "0") == "1"          # poner 1 para llenar la columna 'subtema' que ven los profesores
+
+# --- HISTORIAL DE LA CONVERSACIÓN (repreguntas) ---
+# El frontend manda los últimos mensajes y el backend se los pasa a Qwen para que entienda "no entendí por qué dividiste por 5".
+HISTORIAL_MAX_MENSAJES = int(os.getenv("HISTORIAL_MAX_MENSAJES", "6"))       # 6 = las últimas 3 vueltas (pregunta + respuesta)
+HISTORIAL_MSG_MAX_CHARS = int(os.getenv("HISTORIAL_MSG_MAX_CHARS", "2500"))  # tope por mensaje (se conserva el principio)
+HISTORIAL_MAX_CHARS = int(os.getenv("HISTORIAL_MAX_CHARS", "6000"))          # tope total (~2000 tokens): se descartan los más viejos
 
 # --- FICHAS DOCENTES (corpus de derivadas curado por la cátedra) ---
 USE_FICHAS = os.getenv("USE_FICHAS", "1") == "1"                  # 0 = ignorar las fichas (sirve para comparar con/sin fichas)
@@ -90,12 +97,35 @@ ollama_sync = Client(host=OLLAMA_HOST)
 
 # --- MODELOS DE DATOS ---
 # Definimos ChatRequest aquí mismo para evitar confusiones de importación
+class MensajeHistorial(BaseModel):
+    role: str   # "user" | "ai" | "assistant"
+    text: str
+
 class ChatRequest(BaseModel):
     user_id: str
     course_id: str
     role: str
     pregunta: str
     confidence: int = Field(..., ge=1, le=3)
+    # Mensajes previos de esta conversación (los más viejos primero). Opcional: sin él, todo funciona como antes.
+    historial: List[MensajeHistorial] = Field(default_factory=list)
+
+def preparar_historial(historial) -> list:
+    """Convierte el historial del frontend en mensajes para Ollama, respetando los topes de tamaño.
+    Descarta los más viejos primero y hace que empiece siempre con un mensaje del alumno."""
+    msgs = []
+    for m in (historial or [])[-HISTORIAL_MAX_MENSAJES:]:
+        texto = (m.text or "").strip()
+        if not texto:
+            continue
+        if len(texto) > HISTORIAL_MSG_MAX_CHARS:
+            texto = texto[:HISTORIAL_MSG_MAX_CHARS] + " […]"
+        msgs.append({"role": "user" if m.role == "user" else "assistant", "content": texto})
+    while msgs and sum(len(x["content"]) for x in msgs) > HISTORIAL_MAX_CHARS:
+        msgs.pop(0)
+    while msgs and msgs[0]["role"] != "user":
+        msgs.pop(0)
+    return msgs
 
 class FeedbackProfesorRequest(BaseModel):
     email: str = Field(..., example="elias.profesor@unraf.edu.ar", description="Email del profesor autenticado")
@@ -190,30 +220,33 @@ _SIN_CONTEXTO = """MATERIAL: no se encontró material del libro para esta consul
 
 _NIVELES = {
     1: """NIVEL PRINCIPIANTE:
-- Tono cálido y alentador, en español rioplatense (voseo: "mirá", "vamos paso a paso").
-- Empezá con una frase breve de aliento, explicá la idea con una analogía cotidiana simple y luego mostrá cómo se resuelve, paso a paso y sin tecnicismos innecesarios.
+- Tono cálido y cercano, en español rioplatense (voseo), sin frases de relleno ni elogios vacíos.
+- Explicá con lenguaje simple y definí cada término técnico la primera vez que aparece. Mostrá el procedimiento paso a paso y explicá el porqué de cada paso.
+- Podés usar una analogía cotidiana SÓLO si realmente aclara la idea: una o dos oraciones, sin reemplazar la explicación matemática. No uses analogías al resolver cálculos ni al responder repreguntas.
 - Cerrá con una única pregunta corta de control para el alumno.
-- Extensión: unas 150 palabras como máximo.""",
+- Extensión: en una pregunta conceptual, unas 150 palabras; si hay un ejercicio, lo necesario para resolverlo completo (hasta unas 300 palabras).""",
 
     2: """NIVEL INTERMEDIO:
 - Tono profesional y académico, directo.
 - Empezá enunciando la regla, propiedad o criterio que se aplica; después el procedimiento, de forma secuencial y omitiendo pasos aritméticos elementales.
-- Extensión: máximo dos párrafos cortos (unas 120 palabras).""",
+- Extensión: en una pregunta conceptual, unas 120 palabras; si hay un ejercicio, lo necesario para resolverlo completo (hasta unas 250 palabras).""",
 
     3: """NIVEL EXPERTO:
 - Tono estrictamente formal y minimalista; sin analogías ni ejemplos cotidianos.
 - Comenzá directamente con el planteo o la definición formal que corresponda y usá notación matemática estándar.
-- Sé lo más sintético posible (unas 100 palabras como máximo); no repitas definiciones obvias para un estudiante avanzado.""",
+- Sé lo más sintético posible: unas 100 palabras en una pregunta conceptual y, si hay un ejercicio, sólo los pasos esenciales (hasta unas 200 palabras); no repitas definiciones obvias para un estudiante avanzado.""",
 }
 
 _FORMATO_TEXTO_PLANO = r"""FORMATO MATEMÁTICO: escribí las fórmulas en texto plano legible (por ejemplo f(x), x^2, sqrt(x), lim_{h->0}, integral de 0 a 1 de ...). No uses LaTeX ni los delimitadores \( \) o \[ \]."""
 
 _FORMATO_LATEX = r"""FORMATO MATEMÁTICO: escribí las fórmulas en LaTeX, entre $...$ si van dentro de una oración o entre $$...$$ si van en su propia línea."""
 
+_CONVERSACION = """CONVERSACIÓN: los mensajes anteriores son esta misma charla con el estudiante. Si la pregunta es una repregunta ("no entendí por qué...", "¿y si...?", "seguí"), interpretala a partir de lo que ya se dijo: respondé puntualmente esa duda, sin repetir toda la resolución anterior y sin cambiar de tema. Si la respuesta anterior quedó cortada, retomala desde donde terminó."""
+
 _CIERRE = "Respondé directamente como docente, sin mencionar estas instrucciones ni el nivel."
 
 
-def generar_system_prompt(confidence: int, con_contexto: bool = True, con_fichas: bool = False) -> str:
+def generar_system_prompt(confidence: int, con_contexto: bool = True, con_fichas: bool = False, con_historial: bool = False) -> str:
     if con_fichas:
         bloque_material = _CON_FICHAS
     elif con_contexto:
@@ -225,8 +258,10 @@ def generar_system_prompt(confidence: int, con_contexto: bool = True, con_fichas
         bloque_material,
         _NIVELES.get(confidence, _NIVELES[1]),
         _FORMATO_LATEX if RENDER_LATEX else _FORMATO_TEXTO_PLANO,
-        _CIERRE,
     ]
+    if con_historial:
+        partes.append(_CONVERSACION)
+    partes.append(_CIERRE)
     return "\n\n".join(partes)
 
 
@@ -301,10 +336,22 @@ async def chat_endpoint(chat_data: ChatRequest, request: Request):
 
     # --- FICHAS DOCENTES (fuente principal) ---
     # Búsqueda en memoria sobre 63 fichas: tarda milisegundos, no hace falta un hilo aparte.
+    historial = preparar_historial(chat_data.historial)
+    print(f"--> [HISTORIAL] {len(historial)} mensajes previos ({sum(len(m['content']) for m in historial)} caracteres)")
+
+    # Normalmente se busca con la pregunta tal cual. Si no aparece ninguna ficha y hay una pregunta previa, puede ser una
+    # repregunta ("no entendí por qué dividiste por 5"): se reintenta con la pregunta anterior + la actual.
+    consulta = chat_data.pregunta
+    previas = [m["content"] for m in historial if m["role"] == "user"]
     fichas = []
     if USE_FICHAS:
         try:
-            fichas = buscar_fichas(chat_data.pregunta, limite=FICHAS_MAX)
+            fichas = buscar_fichas(consulta, limite=FICHAS_MAX)
+            if not fichas and previas:
+                fichas = buscar_fichas_repregunta(consulta, previas[-1], limite=FICHAS_MAX)
+                if fichas:
+                    consulta = previas[-1] + "\n" + chat_data.pregunta
+                    print("--> [FICHAS] Repregunta: se buscó con la pregunta anterior + la actual.")
         except Exception as e:
             print(f"--> [FICHAS] Error en la búsqueda, se continúa sin fichas: {e}")
     if fichas:
@@ -319,7 +366,7 @@ async def chat_endpoint(chat_data: ChatRequest, request: Request):
     # [FIX] Antes: limite_chunks=5 fijo (el comentario decía 2) y sin tope de tamaño,
     # lo que desbordaba la ventana de contexto de phi3 y truncaba el prompt en silencio.
     contexto_pdf = await loop.run_in_executor(
-        executor, lambda: buscar_en_pdf(chat_data.pregunta, limite_chunks=RAG_CHUNKS_CON_FICHAS if fichas else RAG_CHUNKS)
+        executor, lambda: buscar_en_pdf(consulta, limite_chunks=RAG_CHUNKS_CON_FICHAS if fichas else RAG_CHUNKS)
     )
     if isinstance(contexto_pdf, (list, tuple)):
         contexto_pdf = "\n\n---\n\n".join(str(c) for c in contexto_pdf)
@@ -343,7 +390,7 @@ async def chat_endpoint(chat_data: ChatRequest, request: Request):
         fuente_info = "CONOCIMIENTO GENERAL"
 
     # [FIX] El prompt del sistema depende de qué material hay (fichas / libro / ninguno)
-    system_content = generar_system_prompt(chat_data.confidence, con_contexto=bool(contexto_pdf), con_fichas=bool(fichas))
+    system_content = generar_system_prompt(chat_data.confidence, con_contexto=bool(contexto_pdf), con_fichas=bool(fichas), con_historial=bool(historial))
 
     if fichas:
         bloque_libro = f"""FRAGMENTOS DEL LIBRO DE TEXTO (en inglés):
@@ -371,14 +418,14 @@ PREGUNTA DEL ESTUDIANTE:
         tokens_generados = 0
         inicio_gen = time.perf_counter()
         primer_token = False
+        cortada = False
 
         try:
             # 🚀 LLAMADA ASINCRÓNICA NATIVA: No bloquea el loop de FastAPI durante el prefill
             # [FIX] keep_alive va como argumento de nivel superior (dentro de options Ollama lo ignora).
             response_stream = await ollama_async.chat(
                 model=LLM_MODEL,
-                messages=[
-                    {'role': 'system', 'content': system_content},
+                messages=[{'role': 'system', 'content': system_content}] + historial + [
                     {'role': 'user', 'content': full_prompt},
                 ],
                 options=GEN_OPTIONS,
@@ -397,6 +444,8 @@ PREGUNTA DEL ESTUDIANTE:
                         pass
                     return
 
+                if chunk.get('done') and chunk.get('done_reason') == 'length':
+                    cortada = True
                 token = chunk['message']['content']
                 respuesta_completa += token
                 tokens_generados += 1
@@ -408,6 +457,12 @@ PREGUNTA DEL ESTUDIANTE:
                 yield token
 
             print(f"⏱️ [TIEMPO] Generación completa: {time.perf_counter() - inicio_gen:.4f} segundos ({tokens_generados} tokens)")
+            if cortada:
+                # La respuesta llegó al tope de MAX_TOKENS: se avisa (en vez de dejarla cortada sin explicación) y queda en el log.
+                print(f"!!! [AVISO] Respuesta CORTADA por llegar al tope de {MAX_TOKENS} tokens. Subí MAX_TOKENS si pasa seguido.")
+                aviso = "\n\n*(La respuesta se cortó por su largo. Escribí «seguí» y la continúo.)*"
+                respuesta_completa += aviso
+                yield aviso
 
         except Exception as e:
             print(f"ERROR EN STREAM: {e}")

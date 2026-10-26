@@ -93,7 +93,10 @@ Se pueden cambiar sin tocar el código, por ejemplo `LLM_MODEL=qwen2.5:7b ./inic
 | `NUM_CTX` | `8192` | Ventana de contexto (tokens) |
 | `RAG_CHUNKS` | `4` | Fragmentos del PDF enviados al modelo |
 | `MAX_CONTEXT_CHARS` | `12000` | Tope de caracteres del contexto del PDF |
-| `MAX_TOKENS` | `600` | Tope de tokens por respuesta |
+| `MAX_TOKENS` | `1000` | Tope de tokens por respuesta. Si una respuesta lo alcanza, se le avisa al alumno («La respuesta se cortó… escribí «seguí»») y queda marcado en `backend.log` |
+| `HISTORIAL_MAX_MENSAJES` | `6` | Mensajes previos de la conversación que se le pasan al modelo (6 = las últimas 3 vueltas) |
+| `HISTORIAL_MSG_MAX_CHARS` | `2500` | Largo máximo de cada mensaje del historial |
+| `HISTORIAL_MAX_CHARS` | `6000` | Largo total máximo del historial (se descartan los más viejos) |
 | `RENDER_LATEX` | `1` con `iniciar_backend.sh` (`0` si se corre `uvicorn` a mano) | El modelo escribe las fórmulas en LaTeX (`$...$`). El frontend ya lo renderiza con KaTeX |
 | `CLASSIFY_TOPIC` | `0` | Poner `1` para completar la columna `subtema` del panel docente |
 | `OLLAMA_HOST` | `http://localhost:11434` | Dirección de Ollama |
@@ -111,7 +114,9 @@ El asistente responde en primer lugar con las **fichas curadas por la cátedra**
 1. Se buscan fichas relevantes (en memoria, en milisegundos; ver `busqueda_fichas.py`).
 2. Si hay, el modelo recibe hasta 3 fichas (fuente principal) más 2 fragmentos del libro (complemento).
 3. Si no hay ninguna ficha confiable, se responde como antes, sólo con el libro. Esto ocurre con preguntas fuera de tema y con los temas que el propio documento declara **sin cobertura** (derivación implícita, concavidad e inflexión, regla de L'Hôpital, Rolle, optimización, derivadas trigonométricas, estudio completo de funciones).
-4. La columna "Eje temático" del panel docente muestra las fichas usadas, por ejemplo `DER-08 Regla de la cadena (+ PAR-10, PAR-11)`. Ante una respuesta incorrecta permite distinguir si falló la ficha, la búsqueda o el modelo.
+   Las preguntas largas y naturales ("Tengo que calcular… ¿me podés ayudar a resolverlo y explicarme…?") también encuentran su ficha: si el puntaje bruto es alto, se acepta aunque las palabras de relleno bajen el puntaje normalizado.
+4. **Repreguntas:** el frontend envía los últimos mensajes de la charla y el backend se los pasa al modelo. Si una repregunta sola no encuentra ficha ("no entendí por qué dividiste por 5"), se reintenta con la pregunta anterior + la actual, y sólo se aceptan fichas que también coincidan con la pregunta actual (así un cambio de tema no arrastra fichas viejas).
+5. La columna "Eje temático" del panel docente muestra las fichas usadas, por ejemplo `DER-08 Regla de la cadena (+ PAR-10, PAR-11)`. Ante una respuesta incorrecta permite distinguir si falló la ficha, la búsqueda o el modelo.
 
 **Actualizar el corpus** cuando la cátedra entregue una versión nueva del documento (desde `backend/`):
 

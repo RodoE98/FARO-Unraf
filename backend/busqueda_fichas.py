@@ -40,6 +40,10 @@ NORM_MIN = 0.90         # puntaje normalizado minimo de la mejor ficha (0..~1.5)
 ABS_MIN = 2.0           # y puntaje bruto minimo (evita aceptar una ficha por una sola palabra muy comun)
 UNKNOWN_W = 0.5         # peso de las palabras de la pregunta que no existen en ninguna ficha (0 = ignorarlas)
 RATIO_MIN = 0.55        # una ficha adicional entra si llega a esta fraccion del puntaje de la mejor
+# Preguntas LARGAS ("Tengo que calcular ... ¿me podes ayudar a resolverlo y explicarme ...?"): las palabras de relleno
+# bajan el puntaje normalizado aunque la ficha sea la correcta. Si el puntaje BRUTO es alto, alcanza con una cobertura menor.
+ABS_FUERTE = 10.0       # puntaje bruto a partir del cual se acepta una ficha...
+NORM_MIN_FUERTE = 0.50  # ...con este puntaje normalizado minimo (los temas sin cobertura se descartan antes, por regla)
 
 # ---------------------------------------------------------------- normalizacion
 STOPWORDS = set("""
@@ -208,13 +212,28 @@ def buscar_fichas(pregunta, limite=3):
     if not ranking:
         return []
     mejor, norm_mejor, _ = ranking[0]
-    if norm_mejor < NORM_MIN or mejor < ABS_MIN:
+    pasa_normal = norm_mejor >= NORM_MIN and mejor >= ABS_MIN
+    pasa_fuerte = mejor >= ABS_FUERTE and norm_mejor >= NORM_MIN_FUERTE
+    if not (pasa_normal or pasa_fuerte):
         return []
     elegidas = []
     for s, norm, ficha in ranking[:limite]:
         if s >= RATIO_MIN * mejor:
             elegidas.append(dict(ficha, score=round(s, 2), score_norm=round(norm, 2)))
     return elegidas
+
+
+def buscar_fichas_repregunta(pregunta, pregunta_previa, limite=3):
+    """Para repreguntas ("no entendi por que dividiste por 5") que solas no encuentran ficha: busca con la pregunta
+    anterior + la actual. Una ficha solo se acepta si la pregunta ACTUAL tambien coincide con ella (puntaje >= ABS_MIN):
+    asi un cambio de tema ("receta de keke") no arrastra las fichas de la pregunta anterior."""
+    if not pregunta_previa:
+        return []
+    fichas = buscar_fichas(pregunta_previa + "\n" + pregunta, limite=limite)
+    if not fichas:
+        return []
+    propio = {f["id"]: sc for sc, _, f in puntuar(pregunta)}
+    return [f for f in fichas if propio.get(f["id"], 0.0) >= ABS_MIN]
 
 
 # ---------------------------------------------------------------- formato para el modelo y para el log

@@ -52,6 +52,13 @@ const send = async () => {
     const text = input.trim();
     if (!text || sending) return;
 
+    // Historial de esta charla (sin el saludo ni los errores de conexión) para que el modelo entienda las repreguntas.
+    // `messages` todavía NO incluye la pregunta actual; el backend se queda con los últimos mensajes que le entran.
+    const historial = messages
+      .filter((m) => m.id !== "welcome" && !m.text.startsWith("No pude conectarme"))
+      .slice(-6)
+      .map((m) => ({ role: m.role === "ai" ? "assistant" : "user", text: m.text }));
+
     const userMsg = addMessage({ role: "user", text });
     setInput("");
     setSending(true);
@@ -68,6 +75,7 @@ const send = async () => {
           role: user.role,
           pregunta: text,
           confidence: confidence, 
+          historial,
         }),
       });
 
