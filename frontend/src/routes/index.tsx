@@ -24,6 +24,8 @@ export const Route = createFileRoute("/")({
 function Portada() {
   const navigate = useNavigate();
   const [loading, setLoading] = useState(false);
+  // "Ya tengo una ID": en el piloto todavía no hace nada (más adelante pedirá ID y contraseña).
+  const [avisoId, setAvisoId] = useState(false);
   const beamRef = useRef<HTMLDivElement>(null);
 
   useEffect(() => {
@@ -106,6 +108,21 @@ function Portada() {
             </>
           )}
         </button>
+
+        <button
+          type="button"
+          onClick={() => setAvisoId(true)}
+          disabled={loading}
+          className="mt-4 inline-flex items-center gap-2 rounded-2xl border-2 border-primary/40 px-8 py-3 text-base font-semibold text-primary transition-all duration-300 hover:bg-primary/5 active:scale-[0.98] disabled:opacity-60"
+        >
+          <Icon name="badge" />
+          Ya tengo una ID
+        </button>
+        {avisoId && (
+          <p className="mt-3 max-w-sm text-sm text-on-surface-variant">
+            Próximamente vas a poder ingresar con tu ID y tu contraseña. Por ahora tocá COMENZAR.
+          </p>
+        )}
       </div>
 
       <footer className="absolute bottom-6 left-0 right-0 z-10 flex justify-center items-center gap-2 text-on-surface-variant/70">

@@ -2,6 +2,7 @@ from fastapi import FastAPI, HTTPException, Request, Form
 from fastapi.responses import RedirectResponse, StreamingResponse
 from fastapi.middleware.cors import CORSMiddleware
 import hashlib
+import json
 import re
 from pydantic import BaseModel, Field
 from typing import Optional, List
@@ -110,13 +111,14 @@ class ChatRequest(BaseModel):
     confidence: int = Field(..., ge=1, le=3)
     # Mensajes previos de esta conversación (los más viejos primero). Opcional: sin él, todo funciona como antes.
     historial: List[MensajeHistorial] = Field(default_factory=list)
-    # Código de la conversación (lo genera el frontend al abrir la página y con "Nueva conversación"). Opcional.
+    # ID de la conversación / usuario del piloto (lo genera el frontend al abrir la página y con "Nuevo usuario"). Opcional.
     session_id: Optional[str] = None
 
 def limpiar_session_id(valor) -> Optional[str]:
-    """Sólo letras, números y guiones (4-40 caracteres): cualquier otra cosa se descarta en vez de guardarse en la base."""
+    """Sólo letras, números y guiones (3-40 caracteres; los ID del piloto son números de 3 a 5 cifras): cualquier otra cosa
+    se descarta en vez de guardarse en la base."""
     v = (valor or "").strip().upper()
-    return v if re.fullmatch(r"[A-Z0-9-]{4,40}", v) else None
+    return v if re.fullmatch(r"[A-Z0-9-]{3,40}", v) else None
 
 def preparar_historial(historial) -> list:
     """Convierte el historial del frontend en mensajes para Ollama, respetando los topes de tamaño.
@@ -374,8 +376,9 @@ async def chat_endpoint(chat_data: ChatRequest, request: Request):
 
     # [FIX] Antes: limite_chunks=5 fijo (el comentario decía 2) y sin tope de tamaño,
     # lo que desbordaba la ventana de contexto de phi3 y truncaba el prompt en silencio.
+    detalle_libro = []   # fragmentos de OpenStax recuperados (para el registro de fuentes)
     contexto_pdf = await loop.run_in_executor(
-        executor, lambda: buscar_en_pdf(consulta, limite_chunks=RAG_CHUNKS_CON_FICHAS if fichas else RAG_CHUNKS)
+        executor, lambda: buscar_en_pdf(consulta, limite_chunks=RAG_CHUNKS_CON_FICHAS if fichas else RAG_CHUNKS, detalle=detalle_libro)
     )
     if isinstance(contexto_pdf, (list, tuple)):
         contexto_pdf = "\n\n---\n\n".join(str(c) for c in contexto_pdf)
@@ -385,6 +388,31 @@ async def chat_endpoint(chat_data: ChatRequest, request: Request):
         contexto_pdf = contexto_pdf[:MAX_CONTEXT_CHARS]
 
     print(f"⏱️ [TIEMPO] Búsqueda local en PDF: {time.perf_counter() - inicio_rag:.4f} segundos")
+
+    # --- REGISTRO DE FUENTES: qué material se le entregó realmente al modelo en esta consulta ---
+    # Prioridad acordada: fichas docentes -> OpenStax -> conocimiento general del modelo.
+    for frag in detalle_libro:
+        # un fragmento recortado por MAX_CONTEXT_CHARS no llegó (completo) al modelo
+        frag["enviado"] = frag["texto"][:120] in contexto_pdf
+    libro_enviado = [f for f in detalle_libro if f["enviado"]] if contexto_pdf else []
+    if fichas and libro_enviado:
+        fuente_log = "FICHA+OPENSTAX"
+    elif fichas:
+        fuente_log = "FICHA"
+    elif libro_enviado:
+        fuente_log = "OPENSTAX"
+    else:
+        fuente_log = "NINGUNA"
+    fichas_ids_log = ",".join(f["id"] for f in fichas)
+    sin_doc_log = 0 if (fichas or libro_enviado) else 1
+    fragmentos_log = json.dumps({
+        "fichas": [{"id": f["id"], "titulo": f["titulo"], "score": f.get("score"), "score_norm": f.get("score_norm"),
+                    "texto": formatear_fichas([f])} for f in fichas],
+        "openstax": detalle_libro,
+        "consulta_de_busqueda": consulta if consulta != chat_data.pregunta else None,
+        "fichas_version": (estado_fichas() or {}).get("version") if USE_FICHAS else None,
+    }, ensure_ascii=False)
+    print(f"--> [FUENTE] {fuente_log} | fichas: {fichas_ids_log or '-'} | fragmentos del libro: {len(libro_enviado)} | sin documentación: {bool(sin_doc_log)}")
 
     # La columna 'subtema' del log (la que ve el profesor) pasa a indicar qué fichas se usaron:
     # así, ante una respuesta incorrecta, se sabe si falló la ficha, la búsqueda o el modelo.
@@ -494,7 +522,11 @@ PREGUNTA DEL ESTUDIANTE:
                 tema,
                 chat_data.pregunta,
                 respuesta_completa,
-                session_id
+                session_id,
+                fuente_log,
+                fichas_ids_log,
+                sin_doc_log,
+                fragmentos_log
             )
         except Exception as e:
             print(f"ERROR AL REGISTRAR LOG: {e}")
@@ -636,7 +668,7 @@ async def obtener_logs_para_profesores(email_profesor: str):
         conn = get_connection()
         cursor = conn.cursor()
         # Traemos el historial de lo que preguntaron los alumnos
-        cursor.execute("SELECT id, user_id, course_id, role, subtema, pregunta, respuesta, timestamp, session_id FROM chat_logs ORDER BY id DESC")
+        cursor.execute("SELECT id, user_id, course_id, role, subtema, pregunta, respuesta, timestamp, session_id, fuente, fichas_ids, sin_documentacion, fragmentos FROM chat_logs ORDER BY id DESC")
         rows = cursor.fetchall()
         conn.close()
         
@@ -651,7 +683,11 @@ async def obtener_logs_para_profesores(email_profesor: str):
                 "pregunta_original": row[5], # Mapeado para que Lovable lo lea directo
                 "respuesta_bot": row[6],      # Mapeado para que Lovable lo lea directo
                 "timestamp": row[7],
-                "session_id": row[8]
+                "session_id": row[8],
+                "fuente": row[9],
+                "fichas_ids": row[10],
+                "sin_documentacion": row[11],
+                "fragmentos": json.loads(row[12]) if row[12] else None
             })
         return logs
     except Exception as e:

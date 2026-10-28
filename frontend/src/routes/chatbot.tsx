@@ -53,9 +53,17 @@ function StudentChat() {
 
   const [sending, setSending] = useState(false);
 
+  // Cada envío tiene un número; "Nuevo usuario" lo avanza y cancela lo que esté en curso, para que la respuesta
+  // pendiente del usuario anterior no aparezca en el chat del siguiente.
+  const envioActual = useRef(0);
+  const controlEnCurso = useRef<AbortController | null>(null);
+
 const send = async () => {
     const text = input.trim();
     if (!text || sending) return;
+    const miEnvio = ++envioActual.current;
+    const control = new AbortController();
+    controlEnCurso.current = control;
 
     // Historial de esta charla (sin el saludo ni los errores de conexión) para que el modelo entienda las repreguntas.
     // `messages` todavía NO incluye la pregunta actual; el backend se queda con los últimos mensajes que le entran.
@@ -74,6 +82,7 @@ const send = async () => {
       const res = await fetch(`${base}/api/chat`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
+        signal: control.signal,
         body: JSON.stringify({
           user_id: user.user_id,
           course_id: user.course_id,
@@ -99,6 +108,7 @@ const send = async () => {
       while (true) {
         const { done, value } = await reader.read();
         if (done) break;
+        if (envioActual.current !== miEnvio) return; // se pulsó "Nuevo usuario" mientras respondía
 
         const chunk = decoder.decode(value, { stream: true });
         textoAcumulado += chunk;
@@ -107,22 +117,35 @@ const send = async () => {
         setStreamedText(textoAcumulado);
       }
 
+      if (envioActual.current !== miEnvio) return;
       // ✨ Cuando el bucle termina, guardamos el mensaje completo en el historial global
       addMessage({ role: "ai", text: textoAcumulado, inReplyTo: userMsg.id });
       setStreamedText(""); // Limpiamos el temporal
 
     } catch (err) {
+      if (envioActual.current !== miEnvio) return; // cancelado por "Nuevo usuario": no se muestra nada
       addMessage({
         role: "ai",
         text: `No pude conectarme con el servidor. ${err instanceof Error ? err.message : ""}`,
         inReplyTo: userMsg.id,
       });
     } finally {
-      setSending(false);
+      if (envioActual.current === miEnvio) setSending(false);
     }
   };
 
+  // Corta lo que esté pasando (respuesta en curso) y limpia la pantalla. Lo usan "Nuevo usuario" y "Ya tengo una ID".
+  const cancelarEnCurso = () => {
+    envioActual.current++;
+    controlEnCurso.current?.abort();
+    controlEnCurso.current = null;
+    setSending(false);
+    setInput("");
+    setStreamedText("");
+  };
+
   const copiarCodigo = async () => {
+    if (!sessionId) return;
     try {
       await navigator.clipboard.writeText(sessionId);
       setCodigoCopiado(true);
@@ -132,20 +155,19 @@ const send = async () => {
     }
   };
 
+  // Sin condiciones: funciona siempre, incluso mientras el modelo está respondiendo.
   const nuevaConversacion = () => {
-    if (sending) return;
+    cancelarEnCurso();
+    setRetomando(false);
+    setErrorCodigo("");
     newSession();
-    setInput("");
-    setStreamedText("");
   };
 
   const retomarConversacion = async () => {
-    if (sending) return;
-    // Acepta "FARO-7K3Q9X" o solo "7K3Q9X"
-    let codigo = codigoIngresado.trim().toUpperCase();
-    if (/^[A-Z0-9]{6}$/.test(codigo)) codigo = `FARO-${codigo}`;
-    if (!/^[A-Z0-9-]{4,40}$/.test(codigo)) {
-      setErrorCodigo("El código no es válido. Tiene la forma FARO-XXXXXX.");
+    // Acepta "4821", "#4821" o "alumno-4821"
+    const codigo = codigoIngresado.trim().toUpperCase().replace(/^#/, "").replace(/^ALUMNO-/, "");
+    if (!/^[A-Z0-9-]{3,40}$/.test(codigo)) {
+      setErrorCodigo("El ID no es válido. Es un número, por ejemplo 4821.");
       return;
     }
     setErrorCodigo("");
@@ -153,16 +175,15 @@ const send = async () => {
       const base = import.meta.env.VITE_API_URL ?? "";
       const res = await fetch(`${base}/api/sesion/${encodeURIComponent(codigo)}`);
       if (res.status === 404) {
-        setErrorCodigo("No encontré ninguna conversación con ese código.");
+        setErrorCodigo("No encontré ninguna conversación con ese ID.");
         return;
       }
       if (!res.ok) throw new Error(`HTTP ${res.status}`);
       const data = await res.json();
+      cancelarEnCurso();
       loadSession(data.session_id, data.mensajes);
       setRetomando(false);
       setCodigoIngresado("");
-      setInput("");
-      setStreamedText("");
     } catch {
       setErrorCodigo("No pude conectarme con el servidor. Probá de nuevo.");
     }
@@ -181,19 +202,19 @@ const send = async () => {
 
 return (
     <div className="min-h-screen bg-surface pb-32 md:pb-12">
-      <AppHeader anonymousId="225" />
+      <AppHeader anonymousId={sessionId || "…"} />
 
       <main className="pt-24 px-4 md:px-20 max-w-4xl mx-auto flex flex-col gap-6">
         <section>
           <p className="text-on-surface-variant">
             Tu identificador anónimo:{" "}
-            <span className="font-bold text-primary">#225</span>
+            <span className="font-bold text-primary">#{sessionId || "…"}</span>
           </p>
-          {/* Código de la conversación: el alumno lo anota en las actividades y encuestas para que se pueda vincular */}
+          {/* ID del usuario / conversación: el alumno lo anota en las actividades y encuestas para que se pueda vincular */}
           <div className="mt-3 flex flex-wrap items-center gap-2 rounded-xl border border-outline-variant/60 bg-white/70 px-4 py-3">
             <div className="flex flex-col mr-auto">
-              <span className="text-xs text-on-surface-variant">Código de esta conversación</span>
-              <span className="font-mono text-lg font-bold tracking-wider text-primary select-all">{sessionId}</span>
+              <span className="text-xs text-on-surface-variant">Tu ID (usuario y conversación)</span>
+              <span className="font-mono text-lg font-bold tracking-wider text-primary select-all">{sessionId || "…"}</span>
             </div>
             <button
               type="button"
@@ -206,20 +227,18 @@ return (
             <button
               type="button"
               onClick={nuevaConversacion}
-              disabled={sending}
-              className="inline-flex items-center gap-1 rounded-full bg-primary px-4 py-2 text-sm font-medium text-on-primary disabled:opacity-50"
+              className="inline-flex items-center gap-1 rounded-full bg-primary px-4 py-2 text-sm font-medium text-on-primary active:scale-[0.98]"
             >
-              <Icon name="add_comment" />
-              Nueva conversación
+              <Icon name="person_add" />
+              Nuevo usuario
             </button>
             <button
               type="button"
               onClick={() => { setRetomando((v) => !v); setErrorCodigo(""); }}
-              disabled={sending}
-              className="inline-flex items-center gap-1 rounded-full border border-outline-variant px-3 py-2 text-sm text-on-surface-variant hover:bg-surface-container-highest disabled:opacity-50"
+              className="inline-flex items-center gap-1 rounded-full border border-outline-variant px-3 py-2 text-sm text-on-surface-variant hover:bg-surface-container-highest"
             >
               <Icon name="login" />
-              Tengo un código
+              Ya tengo una ID
             </button>
             {retomando && (
               <div className="basis-full flex flex-col gap-2 pt-2">
@@ -228,7 +247,7 @@ return (
                     value={codigoIngresado}
                     onChange={(e) => setCodigoIngresado(e.target.value)}
                     onKeyDown={(e) => { if (e.key === "Enter") retomarConversacion(); }}
-                    placeholder="FARO-XXXXXX"
+                    placeholder="Ej. 4821" inputMode="numeric"
                     className="min-w-0 flex-1 rounded-full border border-outline-variant bg-white px-4 py-2 font-mono uppercase tracking-wider outline-none focus:border-primary"
                   />
                   <button

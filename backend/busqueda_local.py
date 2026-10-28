@@ -86,10 +86,12 @@ def seleccionar_libro(texto_consulta):
     return BIBLIOTECA["calculo1"], "calculo1"
 
 
-def buscar_en_pdf(pregunta_alumno, limite_chunks=3):
+def buscar_en_pdf(pregunta_alumno, limite_chunks=3, detalle=None):
     """
     Busca de forma ultra rápida en el índice invertido utilizando pesos TF-IDF 
     y devuelve los bloques de texto (chunks) más relevantes consolidados.
+    Si se pasa una lista en `detalle`, se le agrega un dict por fragmento recuperado (libro, id, sección, páginas,
+    puntaje y texto): sirve para dejar registrado en el log qué material se le dio al modelo.
     """
     pregunta_alumno = _sin_tildes(pregunta_alumno)
 
@@ -154,6 +156,10 @@ def buscar_en_pdf(pregunta_alumno, limite_chunks=3):
         ref = referencias_chunks[chunk_id]
         print(f"       -> [{rank}] ID: {chunk_id} (Score: {score_final:.4f}) | Sección: {ref['seccion']} | Páginas PDF: {ref['paginas']}")
         
+        if detalle is not None:
+            detalle.append({"libro": libro_archivo, "chunk": chunk_id, "seccion": ref["seccion"],
+                            "paginas": ref["paginas"], "score": round(float(score_final), 4), "texto": ref["contenido"]})
+
         # Le inyectamos una pequeña cabecera al texto para guiar al modelo si es necesario
         contexto_consolidado += f"--- [Fragmento de la Sección {ref['seccion']}, Páginas del PDF: {ref['paginas']}] ---\n"
         contexto_consolidado += f"{ref['contenido']}\n\n"

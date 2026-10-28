@@ -105,15 +105,34 @@ Se pueden cambiar sin tocar el código, por ejemplo `LLM_MODEL=qwen2.5:7b ./inic
 | `FICHAS_MAX` | `3` | Máximo de fichas que se envían al modelo por consulta |
 | `RAG_CHUNKS_CON_FICHAS` | `2` | Fragmentos del libro que se agregan cuando sí hay fichas |
 
-## Código de sesión
+## Registro de fuentes (piloto)
 
-Cada conversación tiene un código propio (ej. `FARO-7K3Q9X`) que se muestra en la pantalla del chat, con un botón para copiarlo. El alumno lo anota en las actividades y encuestas para que se puedan vincular con sus consultas.
+Cada fila de `chat_logs` guarda de dónde salió el material que se le entregó al modelo, para comprobar la prioridad acordada: **fichas docentes → OpenStax → conocimiento general del modelo**.
 
-- Se genera al abrir la página y cada vez que se pulsa **Nueva conversación** (que además vacía el chat, así el modelo no mezcla conversaciones).
-- Se guarda en la columna `session_id` de `chat_logs` y aparece como "Sesión" en el panel docente. Es independiente de `user_id`.
-- **Retomar desde otro dispositivo:** el botón "Tengo un código" pide un código (`FARO-7K3Q9X` o sólo `7K3Q9X`), carga la conversación guardada y sigue con el mismo código. Usa `GET /api/sesion/<código>`, que devuelve sólo preguntas y respuestas. Cualquiera que conozca el código puede leer esa conversación; para el piloto alcanza, pero no es autenticación.
-- Las bases creadas antes de este cambio se actualizan solas al arrancar el backend (se agrega la columna; los datos no se tocan).
-- Para sacar todas las consultas de una conversación: `sqlite3 backend/logs_pedagogicos.db "select timestamp, pregunta, respuesta from chat_logs where session_id='FARO-7K3Q9X' order by id"`.
+| Columna | Contenido |
+|---|---|
+| `fuente` | `FICHA`, `FICHA+OPENSTAX`, `OPENSTAX` o `NINGUNA` (el modelo respondió sin documentación) |
+| `fichas_ids` | Ids de las fichas entregadas, ej. `DIR-02,DIR-01` |
+| `sin_documentacion` | `1` si no se entregó ninguna ficha ni fragmento del libro |
+| `fragmentos` | JSON con el texto exacto de cada ficha (y la versión del corpus) y de cada fragmento de OpenStax (libro, id del chunk, sección, páginas, puntaje y si entró al prompt) |
+
+Lo que se registra es el material **entregado** al modelo; no puede saberse si el modelo lo usó. Si el contexto del libro se recorta por `MAX_CONTEXT_CHARS`, los fragmentos que quedaron afuera figuran con `enviado: false` y no cuentan como fuente.
+
+- **Panel docente ("Ver Feedbacks"):** cada consulta muestra la fuente, los ids y un desplegable "Ver el material que recibió el modelo".
+- **Backend log:** cada consulta imprime una línea `[FUENTE] ...`.
+- **Exportar a Excel y resumen de la prioridad** (desde `backend/`): `python scripts/exportar_logs.py` genera `exports/logs_<fecha>.csv` e imprime cuántas consultas respondió cada fuente. Opciones: `--desde 2026-10-29`, `--sesion 4821`.
+- Las bases anteriores se actualizan solas al arrancar; sus filas viejas quedan con la fuente vacía.
+
+## ID de usuario / conversación (piloto)
+
+Cada conversación tiene un ID numérico propio (entre 100 y 25535, ej. `4821`) que se muestra en el encabezado (`#4821`) y en el chat, con un botón para copiarlo. El alumno lo anota en las actividades y encuestas para que se puedan vincular con sus consultas.
+
+- Se genera al abrir la página y cada vez que se pulsa **Nuevo usuario** (que además vacía el chat, así el modelo no mezcla conversaciones). Antes de usarlo se consulta al backend que no esté ya en uso.
+- Es a la vez el usuario anónimo y la conversación: el `user_id` que recibe el backend es `alumno-<ID>` (ej. `alumno-4821`) y el ID se guarda en la columna `session_id` de `chat_logs` (aparece como "Sesión" en el panel docente).
+- **Retomar desde otro dispositivo:** el botón "Ya tengo una ID" (dentro del chat) pide el ID (`4821` o `#4821`), carga la conversación guardada y sigue con el mismo ID. Usa `GET /api/sesion/<ID>`, que devuelve sólo preguntas y respuestas. Cualquiera que conozca el ID puede leer esa conversación; para el piloto alcanza, pero no es autenticación.
+- En la pantalla de inicio hay un botón "Ya tengo una ID" que todavía no hace nada (más adelante pedirá ID y contraseña).
+- Las bases creadas antes de este cambio se actualizan solas al arrancar el backend (se agregan las columnas; los datos no se tocan).
+- Para sacar todas las consultas de una conversación: `sqlite3 backend/logs_pedagogicos.db "select timestamp, pregunta, respuesta from chat_logs where session_id='4821' order by id"`.
 
 ## Fichas docentes (corpus de derivadas)
 

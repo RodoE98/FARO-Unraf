@@ -1,4 +1,4 @@
-import { createContext, useCallback, useContext, useMemo, useState, type ReactNode } from "react";
+import { createContext, useCallback, useContext, useEffect, useMemo, useState, type ReactNode } from "react";
 
 export type LtiRole = "Learner" | "Instructor" | "Maestro";
 
@@ -23,11 +23,11 @@ type LtiContextValue = {
   messages: ChatMessage[];
   addMessage: (m: Omit<ChatMessage, "id">) => ChatMessage;
   resetMessages: () => void;
-  /** Código de la conversación actual (ej. FARO-7K3Q9X). Cambia en cada conversación nueva. */
+  /** ID del usuario / conversación actual (ej. "4821"). Cambia con cada "Nuevo usuario". */
   sessionId: string;
-  /** Empieza una conversación nueva: vacía el chat y genera un código nuevo. */
+  /** Empieza de cero: vacía el chat y genera un ID nuevo que no esté en uso. */
   newSession: () => void;
-  /** Retoma una conversación guardada (por ejemplo desde otro dispositivo): adopta su código y carga sus mensajes. */
+  /** Retoma una conversación guardada (por ejemplo desde otro dispositivo): adopta su ID y carga sus mensajes. */
   loadSession: (code: string, msgs: { role: "user" | "ai"; text: string }[]) => void;
 };
 
@@ -47,17 +47,43 @@ const WELCOME: ChatMessage = {
 
 const LtiContext = createContext<LtiContextValue | null>(null);
 
-// Sin 0/O/1/I/L para que se pueda dictar o copiar a mano sin confundirse.
-const ALFABETO_CODIGO = "ABCDEFGHJKMNPQRSTUVWXYZ23456789";
+// ID numérico del piloto: entre ID_MIN y ID_MAX (ej. 4821). Se muestra como "#4821".
+const ID_MIN = 100;
+const ID_MAX = 25535;
 
-function generarCodigoSesion(): string {
-  const bytes = new Uint8Array(6);
+function generarId(): string {
+  const rango = ID_MAX - ID_MIN + 1;
+  let n: number;
   try {
-    crypto.getRandomValues(bytes);
+    n = crypto.getRandomValues(new Uint32Array(1))[0] % rango;
   } catch {
-    for (let i = 0; i < bytes.length; i++) bytes[i] = Math.floor(Math.random() * 256);
+    n = Math.floor(Math.random() * rango);
   }
-  return "FARO-" + Array.from(bytes, (b) => ALFABETO_CODIGO[b % ALFABETO_CODIGO.length]).join("");
+  return String(ID_MIN + n);
+}
+
+/** user_id que se manda al backend para un ID (ej. 4821 -> alumno-4821). */
+export function idDeUsuario(id: string): string {
+  return "alumno-" + id;
+}
+
+/**
+ * Devuelve un ID que todavía no tiene ninguna conversación guardada en el backend (hay ~25.000 posibles, así que casi
+ * siempre sale al primer intento). Si el backend no responde, se usa el primero que salió.
+ */
+async function generarIdLibre(candidato: string = generarId()): Promise<string> {
+  let id = candidato;
+  for (let intento = 0; intento < 8; intento++) {
+    try {
+      const base = import.meta.env.VITE_API_URL ?? "";
+      const res = await fetch(`${base}/api/sesion/${id}`);
+      if (res.status !== 200) return id; // 404 = libre (cualquier otro estado: no se puede verificar)
+    } catch {
+      return id;
+    }
+    id = generarId();
+  }
+  return id;
 }
 
 function uid() {
@@ -65,10 +91,29 @@ function uid() {
 }
 
 export function LtiProvider({ children }: { children: ReactNode }) {
+  // PILOTO: el ID identifica a la vez a un usuario anónimo nuevo y a su conversación. Se genera al abrir la página y cada vez
+  // que se pulsa "Nuevo usuario"; el user_id que ve el backend sale de ese mismo ID (alumno-<ID>).
+  // Se genera después de montar (no en el render inicial) para que el servidor y el navegador no generen valores distintos.
   const [user, setUser] = useState<LtiUser>(DEFAULT_LTI_USER);
   const [messages, setMessages] = useState<ChatMessage[]>([WELCOME]);
-  // Un código por conversación: se genera al abrir la página y cada vez que se pulsa "Nueva conversación".
-  const [sessionId, setSessionId] = useState<string>(() => generarCodigoSesion());
+  const [sessionId, setSessionId] = useState<string>("");
+
+  useEffect(() => {
+    const inicial = generarId();
+    setSessionId(inicial);
+    setUser((u) => ({ ...u, user_id: idDeUsuario(inicial) }));
+    // Verifica en segundo plano que no esté en uso; si lo está y todavía no se escribió nada, se cambia por otro.
+    let vigente = true;
+    generarIdLibre(inicial).then((libre) => {
+      if (!vigente) return;
+      setSessionId((actual) => {
+        if (actual !== inicial) return actual;
+        return libre;
+      });
+      setUser((u) => (u.user_id === idDeUsuario(inicial) ? { ...u, user_id: idDeUsuario(libre) } : u));
+    });
+    return () => { vigente = false; };
+  }, []);
 
   const addMessage = useCallback((m: Omit<ChatMessage, "id">): ChatMessage => {
     const msg: ChatMessage = { ...m, id: uid() };
@@ -78,14 +123,24 @@ export function LtiProvider({ children }: { children: ReactNode }) {
 
   const resetMessages = useCallback(() => setMessages([WELCOME]), []);
 
+  // Inmediato: el ID nuevo aparece en el acto (no espera al backend). Después se verifica en segundo plano que no esté en uso
+  // y, en el caso rarísimo de que lo esté, se cambia por otro.
   const newSession = useCallback(() => {
+    const id = generarId();
     setMessages([WELCOME]);
-    setSessionId(generarCodigoSesion());
+    setSessionId(id);
+    setUser((u) => ({ ...u, user_id: idDeUsuario(id) }));
+    generarIdLibre(id).then((libre) => {
+      if (libre === id) return;
+      setSessionId((actual) => (actual === id ? libre : actual));
+      setUser((u) => (u.user_id === idDeUsuario(id) ? { ...u, user_id: idDeUsuario(libre) } : u));
+    });
   }, []);
 
   const loadSession = useCallback((code: string, msgs: { role: "user" | "ai"; text: string }[]) => {
     setMessages([WELCOME, ...msgs.map((m) => ({ id: uid(), role: m.role, text: m.text }))]);
     setSessionId(code);
+    setUser((u) => ({ ...u, user_id: idDeUsuario(code) }));
   }, []);
 
   const value = useMemo(

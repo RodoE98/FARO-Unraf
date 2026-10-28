@@ -39,18 +39,28 @@ def init_db():
     columnas = [fila[1] for fila in cursor.execute("PRAGMA table_info(chat_logs)").fetchall()]
     if "session_id" not in columnas:
         cursor.execute("ALTER TABLE chat_logs ADD COLUMN session_id TEXT")
+    # Trazabilidad de la fuente de cada respuesta (prioridad acordada: fichas docentes -> OpenStax -> conocimiento del modelo):
+    #   fuente            FICHA | FICHA+OPENSTAX | OPENSTAX | NINGUNA (respondió el modelo sin documentación)
+    #   fichas_ids        ids de las fichas entregadas al modelo, separados por coma (ej. "DIR-02,DIR-01")
+    #   sin_documentacion 1 si no se le entregó ninguna ficha ni fragmento del libro
+    #   fragmentos        JSON con el texto exacto de las fichas y de los fragmentos de OpenStax recuperados
+    for nombre, tipo in (("fuente", "TEXT"), ("fichas_ids", "TEXT"), ("sin_documentacion", "INTEGER"), ("fragmentos", "TEXT")):
+        if nombre not in columnas:
+            cursor.execute(f"ALTER TABLE chat_logs ADD COLUMN {nombre} {tipo}")
     cursor.execute("CREATE INDEX IF NOT EXISTS idx_chat_logs_session ON chat_logs(session_id)")
     conn.commit()
     conn.close()
 
-def registrar_log(user_id, course_id, role, subtema, pregunta, respuesta, session_id=None):
+def registrar_log(user_id, course_id, role, subtema, pregunta, respuesta, session_id=None,
+                  fuente=None, fichas_ids=None, sin_documentacion=None, fragmentos=None):
     """Guarda las consultas de los alumnos de manera segura de forma posicional."""
     conn = get_connection()
     cursor = conn.cursor()
     try:
         cursor.execute("""
-            INSERT INTO chat_logs (user_id, course_id, role, subtema, pregunta, respuesta, timestamp, session_id)
-            VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+            INSERT INTO chat_logs (user_id, course_id, role, subtema, pregunta, respuesta, timestamp, session_id,
+                                   fuente, fichas_ids, sin_documentacion, fragmentos)
+            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
         """, (
             str(user_id),
             str(course_id),
@@ -59,7 +69,11 @@ def registrar_log(user_id, course_id, role, subtema, pregunta, respuesta, sessio
             str(pregunta),
             str(respuesta),
             datetime.utcnow().isoformat(),
-            session_id
+            session_id,
+            fuente,
+            fichas_ids,
+            sin_documentacion,
+            fragmentos
         ))
         conn.commit()
         print("--> [DB SUCCESS] Registro de consulta de alumno guardado en logs_pedagogicos.db.")

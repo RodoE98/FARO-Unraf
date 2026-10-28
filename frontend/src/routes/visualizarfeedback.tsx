@@ -21,7 +21,23 @@ interface ChatLogAlumno {
   respuesta_bot: string;      // Coincide con tu Backend
   timestamp: string;
   session_id?: string | null;
+  // Fuente efectivamente entregada al modelo (prioridad: fichas docentes -> OpenStax -> conocimiento del modelo)
+  fuente?: "FICHA" | "FICHA+OPENSTAX" | "OPENSTAX" | "NINGUNA" | null;
+  fichas_ids?: string | null;
+  sin_documentacion?: number | null;
+  fragmentos?: {
+    fichas: { id: string; titulo: string; texto: string }[];
+    openstax: { chunk: string; seccion: string; paginas: number[]; score: number; texto: string; enviado: boolean }[];
+    consulta_de_busqueda?: string | null;
+  } | null;
 }
+
+const ETIQUETA_FUENTE: Record<string, { texto: string; clase: string }> = {
+  "FICHA": { texto: "Ficha docente", clase: "bg-emerald-100 text-emerald-800" },
+  "FICHA+OPENSTAX": { texto: "Ficha docente + OpenStax", clase: "bg-emerald-100 text-emerald-800" },
+  "OPENSTAX": { texto: "OpenStax", clase: "bg-sky-100 text-sky-800" },
+  "NINGUNA": { texto: "Sin documentación (conocimiento del modelo)", clase: "bg-amber-100 text-amber-800" },
+};
 
 export const Route = createFileRoute("/visualizarfeedback")({
   component: VisualizarLogsAlumnos,
@@ -113,6 +129,49 @@ function VisualizarLogsAlumnos() {
                     <span>Sesión: <strong className="font-mono text-slate-600">{log.session_id || "—"}</strong></span>
                     <span>{log.timestamp ? new Date(log.timestamp).toLocaleString("es-AR") : "Sin fecha"}</span>
                   </div>
+
+                  {/* Fuente efectivamente recuperada */}
+                  {log.fuente ? (
+                    <div className="flex flex-col gap-2 text-xs">
+                      <div className="flex flex-wrap items-center gap-2">
+                        <span className="font-bold text-slate-500">FUENTE:</span>
+                        <span className={"rounded-full px-3 py-1 font-semibold " + (ETIQUETA_FUENTE[log.fuente]?.clase ?? "bg-slate-100 text-slate-700")}>
+                          {ETIQUETA_FUENTE[log.fuente]?.texto ?? log.fuente}
+                        </span>
+                        {log.fichas_ids && <span className="font-mono text-slate-600">Fichas: {log.fichas_ids}</span>}
+                        {log.fragmentos?.openstax?.some((x) => x.enviado) && (
+                          <span className="font-mono text-slate-600">
+                            OpenStax: {log.fragmentos.openstax.filter((x) => x.enviado).map((x) => `sec. ${x.seccion}`).join(", ")}
+                          </span>
+                        )}
+                        {log.sin_documentacion ? <span className="font-semibold text-amber-700">Respondió sin documentación recuperada</span> : null}
+                      </div>
+                      {log.fragmentos && (log.fragmentos.fichas.length > 0 || log.fragmentos.openstax.length > 0) && (
+                        <details className="rounded-lg border border-slate-100 bg-slate-50 p-3">
+                          <summary className="cursor-pointer font-semibold text-slate-600">Ver el material que recibió el modelo</summary>
+                          <div className="mt-2 flex flex-col gap-3">
+                            {log.fragmentos.consulta_de_busqueda && (
+                              <p className="text-slate-500">Repregunta: se buscó con la pregunta anterior + la actual.</p>
+                            )}
+                            {log.fragmentos.fichas.map((f) => (
+                              <pre key={f.id} className="whitespace-pre-wrap font-sans text-slate-700">{f.texto}</pre>
+                            ))}
+                            {log.fragmentos.openstax.map((x) => (
+                              <div key={x.chunk} className={x.enviado ? "" : "opacity-50"}>
+                                <p className="font-mono text-slate-500">
+                                  OpenStax · {x.chunk} · sec. {x.seccion} · págs. {x.paginas?.join("–")} · puntaje {x.score}
+                                  {x.enviado ? "" : " · (no entró en el prompt: contexto recortado)"}
+                                </p>
+                                <pre className="whitespace-pre-wrap font-sans text-slate-700">{x.texto}</pre>
+                              </div>
+                            ))}
+                          </div>
+                        </details>
+                      )}
+                    </div>
+                  ) : (
+                    <div className="text-xs text-slate-400 italic">Registro anterior al seguimiento de fuentes.</div>
+                  )}
 
                   {/* Bloques de contenido */}
                   <div className="grid grid-cols-1 gap-4 text-sm">
