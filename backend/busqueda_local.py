@@ -44,7 +44,65 @@ DICCIONARIO_TECNICO = {
     "trigonometrica": "trigonometric",
     "trigonometricas": "trigonometric",
     "seno": "sine",
-    "coseno": "cosine"
+    "coseno": "cosine",
+    # Cálculo de varias variables (tomo 3). El índice del libro no tiene stemming: "derivative" y "derivatives" son
+    # palabras distintas, así que se traduce al término tal como aparece en el libro. Los valores con varias palabras
+    # se separan al buscar ("linear approximation" -> "linear", "approximation").
+    "direccional": "directional",
+    "direccionales": "directional",
+    "diferenciable": "differentiable",
+    "diferenciabilidad": "differentiable",
+    "diferenciables": "differentiable",
+    "diferencial": "differential",
+    "cadena": "chain",
+    "compuesta": "composite",
+    "compuestas": "composite",
+    "extremo": "extrema",
+    "extremos": "extrema",
+    "critico": "critical",
+    "criticos": "critical",
+    "criticas": "critical",
+    "silla": "saddle",
+    "hessiano": "second derivative test",
+    "criterio": "test",
+    "continuidad": "continuity",
+    "continua": "continuous",
+    "dominio": "domain",
+    "tangente": "tangent",
+    "tangentes": "tangent",
+    "plano": "plane tangent",
+    "planos": "planes",
+    "curvas": "curves",
+    "curva": "curve",
+    "nivel": "level",
+    "linealizacion": "linear approximation",
+    "aproximacion": "approximation",
+    "lineal": "linear",
+    "maximo": "maximum",
+    "maximos": "maximum",
+    "minimo": "minimum",
+    "minimos": "minimum",
+    "unitario": "unit",
+    "variables": "variables",
+    "mixtas": "mixed",
+    "cruzadas": "mixed",
+    "segunda": "second",
+    "segundo": "second",
+    "polares": "polar",
+    "coordenadas": "coordinates",
+    "camino": "path",
+    "caminos": "paths",
+    "trazas": "traces",
+    "secante": "secant",
+    "pendiente": "slope",
+    "campo": "field",
+    "campos": "fields",
+    "doble": "double",
+    "crece": "increase",
+    "creciente": "increasing",
+    "rapido": "rate",
+    "direccion": "direction",
+    "multiplicadores": "multipliers"
 }
 
 INDICES_CARGADOS = {}
@@ -74,15 +132,33 @@ def cargar_indice_en_memoria(nombre_libro_clave):
         return INDICES_CARGADOS[nombre_libro_clave]
     return None
 
+# Libro que se usa cuando la consulta no apunta claramente a otro tomo. La cátedra pidió el tomo 3 (cálculo de varias variables,
+# Análisis Matemático II). Con LIBRO_POR_DEFECTO=auto vuelve al comportamiento anterior (tomo 1 salvo palabras clave).
+LIBRO_POR_DEFECTO = os.getenv("LIBRO_POR_DEFECTO", "calculo3").strip().lower()
+
+_FRASES_TOMO2 = ["fracciones parciales", "tecnicas de integracion", "por partes", "ecuacion diferencial", "ecuaciones diferenciales"]
+_PALABRAS_TOMO3 = ["integracion multiple", "multiple", "triple", "multivariable", "parcial", "calculo vectorial", "vector",
+                   "superficie", "gradiente", "stokes", "direccional", "campo", "curvas de nivel", "plano tangente", "hessian",
+                   "dos variables", "tres variables", "varias variables"]
+_PALABRAS_TOMO2 = ["serie", "sucesion", "converg", "diverg", "potencias"]
+
+
 def seleccionar_libro(texto_consulta):
-    """Analiza el texto de la consulta y asigna el tomo correcto de OpenStax y su clave."""
+    """Analiza el texto de la consulta y asigna el tomo de OpenStax y su clave.
+    Por defecto usa el tomo 3; sólo va al tomo 2 con temas claramente suyos (series, sucesiones, ecuaciones diferenciales,
+    técnicas de integración) y al tomo 1 si LIBRO_POR_DEFECTO=auto/calculo1."""
     tema = str(texto_consulta).lower().strip()
 
-    if any(w in tema for w in ["integracion multiple", "multiple", "triple", "multivariable", "parcial", "calculo vectorial", "vectores", "superficie", "gradiente", "stokes"]):
-        return BIBLIOTECA["calculo3"], "calculo3"
-    elif any(w in tema for w in ["serie", "sucesion", "converg", "diverg", "potencias", "ecuacion diferencial", "tecnicas de integracion", "fracciones parciales", "por partes"]):
+    # "fracciones parciales" contiene "parcial": se revisa antes para que no caiga en el tomo 3 por error.
+    if any(w in tema for w in _FRASES_TOMO2):
         return BIBLIOTECA["calculo2"], "calculo2"
-    
+    if any(w in tema for w in _PALABRAS_TOMO3):
+        return BIBLIOTECA["calculo3"], "calculo3"
+    if any(w in tema for w in _PALABRAS_TOMO2):
+        return BIBLIOTECA["calculo2"], "calculo2"
+
+    if LIBRO_POR_DEFECTO in BIBLIOTECA:
+        return BIBLIOTECA[LIBRO_POR_DEFECTO], LIBRO_POR_DEFECTO
     return BIBLIOTECA["calculo1"], "calculo1"
 
 
@@ -106,11 +182,11 @@ def buscar_en_pdf(pregunta_alumno, limite_chunks=3, detalle=None):
     palabras_ingles = []
     for p in palabras_alumno:
         if p in DICCIONARIO_TECNICO:
-            palabras_ingles.append(DICCIONARIO_TECNICO[p])
+            palabras_ingles.extend(DICCIONARIO_TECNICO[p].split())
         else:
             for clave, traduccion in DICCIONARIO_TECNICO.items():
                 if clave in p or p in clave:
-                    palabras_ingles.append(traduccion)
+                    palabras_ingles.extend(traduccion.split())
 
     # Si no hubo traducción técnica directa, usamos los términos originales
     if not palabras_ingles:
