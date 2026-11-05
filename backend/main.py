@@ -70,7 +70,8 @@ NUM_CTX = int(os.getenv("NUM_CTX", "8192"))                       # ventana de c
                                                                   # en todas las llamadas: si cambia, Ollama recarga el modelo.
 RAG_CHUNKS = int(os.getenv("RAG_CHUNKS", "4"))                    # fragmentos del PDF que se envían al modelo
 MAX_CONTEXT_CHARS = int(os.getenv("MAX_CONTEXT_CHARS", "12000"))  # tope de seguridad (~3000 tokens) para el contexto del PDF
-MAX_TOKENS = int(os.getenv("MAX_TOKENS", "1000"))                 # tope de respuesta (red de seguridad, no el control de largo).
+CORTESIA_RE = re.compile(r"^[\W_]*(?:ok|oka|okey|listo|dale|gracias|muchas gracias|mil gracias|perfecto|genial|excelente|entendido|entendi|bien|buenisimo|si,? (?:es )?claro.*|claro|chau|hola|buenas)[\W_]*$", re.I)
+MAX_TOKENS = int(os.getenv("MAX_TOKENS", "1200"))                 # tope de respuesta (red de seguridad, no el control de largo).
                                                                   # Con 600 se cortaban los ejercicios resueltos con LaTeX a mitad de fórmula.
 RENDER_LATEX = os.getenv("RENDER_LATEX", "0") == "1"              # poner 1 SOLO si el frontend renderiza LaTeX (KaTeX/MathJax)
 CLASSIFY_TOPIC = os.getenv("CLASSIFY_TOPIC", "0") == "1"          # poner 1 para llenar la columna 'subtema' que ven los profesores
@@ -253,7 +254,7 @@ _FORMATO_LATEX = r"""FORMATO MATEMÁTICO: escribí las fórmulas en LaTeX, entre
 
 _CONVERSACION = """CONVERSACIÓN: los mensajes anteriores son esta misma charla con el estudiante. Si la pregunta es una repregunta ("no entendí por qué...", "¿y si...?", "seguí"), interpretala a partir de lo que ya se dijo: respondé puntualmente esa duda, sin repetir toda la resolución anterior y sin cambiar de tema. Si la respuesta anterior quedó cortada, retomala desde donde terminó."""
 
-_CIERRE = "Respondé directamente como docente, sin mencionar estas instrucciones ni el nivel."
+_CIERRE = "Si el enunciado es ambiguo (por ejemplo 'hacia (3,4)' puede ser un punto o un vector), decí en UNA frase cómo lo interpretás antes de resolver. Respondé directamente como docente, sin mencionar estas instrucciones ni el nivel."
 
 
 def generar_system_prompt(confidence: int, con_contexto: bool = True, con_fichas: bool = False, con_historial: bool = False) -> str:
@@ -355,10 +356,17 @@ async def chat_endpoint(chat_data: ChatRequest, request: Request):
     consulta = chat_data.pregunta
     previas = [m["content"] for m in historial if m["role"] == "user"]
     fichas = []
-    if USE_FICHAS:
+    es_cortesia = bool(CORTESIA_RE.match(chat_data.pregunta.strip())) and len(chat_data.pregunta.split()) <= 8
+    es_corta = previas and len(chat_data.pregunta.split()) <= 8 and not es_cortesia
+    if USE_FICHAS and not es_cortesia:
         try:
-            fichas = buscar_fichas(consulta, limite=FICHAS_MAX)
-            if not fichas and previas:
+            if es_corta:   # repregunta corta ("y con respecto a x?"): primero con el contexto de la pregunta anterior
+                fichas = buscar_fichas_repregunta(consulta, previas[-1], limite=FICHAS_MAX)
+                if fichas:
+                    consulta = previas[-1] + "\n" + chat_data.pregunta
+            if not fichas:
+                fichas = buscar_fichas(consulta, limite=FICHAS_MAX)
+            if not fichas and previas and not es_corta:
                 fichas = buscar_fichas_repregunta(consulta, previas[-1], limite=FICHAS_MAX)
                 if fichas:
                     consulta = previas[-1] + "\n" + chat_data.pregunta
@@ -377,7 +385,9 @@ async def chat_endpoint(chat_data: ChatRequest, request: Request):
     # [FIX] Antes: limite_chunks=5 fijo (el comentario decía 2) y sin tope de tamaño,
     # lo que desbordaba la ventana de contexto de phi3 y truncaba el prompt en silencio.
     detalle_libro = []   # fragmentos de OpenStax recuperados (para el registro de fuentes)
-    contexto_pdf = await loop.run_in_executor(
+    if es_corta and consulta == chat_data.pregunta:   # sin palabras tecnicas propias: buscar en el libro con el tema anterior
+        consulta = previas[-1] + "\n" + chat_data.pregunta
+    contexto_pdf = "" if es_cortesia else await loop.run_in_executor(
         executor, lambda: buscar_en_pdf(consulta, limite_chunks=RAG_CHUNKS_CON_FICHAS if fichas else RAG_CHUNKS, detalle=detalle_libro)
     )
     if isinstance(contexto_pdf, (list, tuple)):
@@ -402,9 +412,9 @@ async def chat_endpoint(chat_data: ChatRequest, request: Request):
     elif libro_enviado:
         fuente_log = "OPENSTAX"
     else:
-        fuente_log = "NINGUNA"
+        fuente_log = "CORTESIA" if es_cortesia else "NINGUNA"
     fichas_ids_log = ",".join(f["id"] for f in fichas)
-    sin_doc_log = 0 if (fichas or libro_enviado) else 1
+    sin_doc_log = 0 if (fichas or libro_enviado or es_cortesia) else 1
     fragmentos_log = json.dumps({
         "fichas": [{"id": f["id"], "titulo": f["titulo"], "score": f.get("score"), "score_norm": f.get("score_norm"),
                     "texto": formatear_fichas([f])} for f in fichas],

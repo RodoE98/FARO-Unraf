@@ -71,6 +71,8 @@ ALIAS_SIMETRICO = [
 # Como lo dicen los alumnos vs. como figura en las fichas. Solo se aplica a la CONSULTA.
 ALIAS_CONSULTA = [
     (r"\bmaxim\w*|\bminim\w*", " extremo "),   # "maximos y minimos" -> fichas de extremos
+    # "como cambia la funcion en la direccion del vector v=(3,4)" = derivada direccional (sin decir el nombre)
+    (r"\bcambi\w*\W+(?:\w+\W+){0,8}?(?:funcion|f)\W+(?:\w+\W+){0,6}?direcci\w*|\bdirecci\w*\W+(?:del?\W+)?(?:la\W+)?(?:del?\W+)?vector\w*", " derivada direccional "),
 ]
 
 # Temas que el apendice del documento declara "mencionados sin desarrollo suficiente".
@@ -100,6 +102,34 @@ def normalizar(texto, es_consulta=False):
     return t
 
 
+def _vocabulario():
+    """Palabras completas (normalizadas) que aparecen en las fichas: sirve para corregir erratas de la consulta."""
+    global _VOCAB
+    if _VOCAB is None:
+        _cargar()
+        palabras = set()
+        for f in _DATOS["fichas"]:
+            for campo in PESOS_CAMPO:
+                palabras |= set(re.findall(r"[a-z]{5,}", normalizar(f.get(campo, ""))))
+        _VOCAB = sorted(w for w in palabras if w not in STOPWORDS)
+    return _VOCAB
+
+
+def corregir_erratas(texto):
+    """Reemplaza palabras de la consulta que no existen en las fichas por la palabra parecida que si existe
+    ("dirreccional" -> "direccional", "culcular" -> "calcular"). Conservador: solo palabras de 8+ letras."""
+    import difflib
+    vocab = _vocabulario()
+    conocidas = set(vocab)
+    def arreglar(m):
+        w = m.group(0)
+        if len(w) < 8 or w in conocidas or w in STOPWORDS:
+            return w
+        cerca = difflib.get_close_matches(w, vocab, n=1, cutoff=0.82)
+        return cerca[0] if cerca else w
+    return re.sub(r"[a-z]+", arreglar, normalizar(texto, es_consulta=False))
+
+
 def raiz(palabra):
     if len(palabra) > 3 and palabra.endswith("s"):
         palabra = palabra[:-1]
@@ -108,6 +138,11 @@ def raiz(palabra):
 
 def tokenizar(texto, es_consulta=False):
     """Lista de raices (sin palabras vacias, sin letras sueltas)."""
+    if es_consulta:
+        try:
+            texto = corregir_erratas(texto)
+        except Exception:
+            pass
     palabras = re.findall(r"[a-z0-9]+", normalizar(texto, es_consulta))
     return [raiz(p) for p in palabras if p not in STOPWORDS and len(p) > 1]
 
@@ -119,6 +154,7 @@ def _bigramas(tokens):
 # ---------------------------------------------------------------- carga e indice (una vez)
 _DATOS = None
 _INDICE = None
+_VOCAB = None
 
 
 def _cargar():
@@ -214,7 +250,15 @@ def buscar_fichas(pregunta, limite=3):
     mejor, norm_mejor, _ = ranking[0]
     pasa_normal = norm_mejor >= NORM_MIN and mejor >= ABS_MIN
     pasa_fuerte = mejor >= ABS_FUERTE and norm_mejor >= NORM_MIN_FUERTE
-    if not (pasa_normal or pasa_fuerte):
+    # El alumno nombra el tema tal cual figura en el titulo de una ficha ("derivada direccional"): alcanza aunque la pregunta sea larga.
+    q_set = set(tokenizar(pregunta, es_consulta=True))
+    pasa_titulo = False
+    for s_, n_, f_ in ranking[:3]:
+        tt = set(tokenizar(f_.get("titulo", "")))
+        if len(tt) >= 2 and tt <= q_set and s_ >= ABS_MIN:
+            pasa_titulo = True
+            break
+    if not (pasa_normal or pasa_fuerte or pasa_titulo):
         return []
     elegidas = []
     for s, norm, ficha in ranking[:limite]:

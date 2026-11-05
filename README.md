@@ -93,7 +93,8 @@ Se pueden cambiar sin tocar el código, por ejemplo `LLM_MODEL=qwen2.5:7b ./inic
 | `NUM_CTX` | `8192` | Ventana de contexto (tokens) |
 | `RAG_CHUNKS` | `4` | Fragmentos del PDF enviados al modelo |
 | `MAX_CONTEXT_CHARS` | `12000` | Tope de caracteres del contexto del PDF |
-| `MAX_TOKENS` | `1000` | Tope de tokens por respuesta. Si una respuesta lo alcanza, se le avisa al alumno («La respuesta se cortó… escribí «seguí»») y queda marcado en `backend.log` |
+| `MAX_TOKENS` | `1200` | Tope de tokens por respuesta. Si una respuesta lo alcanza, se le avisa al alumno («La respuesta se cortó… escribí «seguí»») y queda marcado en `backend.log` |
+| `LIBRO_POR_DEFECTO` | `calculo3` | Tomo de OpenStax que se usa salvo que la consulta apunte claramente al tomo 2 (series, sucesiones, ecuaciones diferenciales, técnicas de integración). Valores: `calculo1`, `calculo2`, `calculo3` o `auto` (comportamiento anterior: tomo 1 salvo palabras clave del tomo 3 o 2). Cada fragmento guardado en el log indica de qué libro salió |
 | `HISTORIAL_MAX_MENSAJES` | `6` | Mensajes previos de la conversación que se le pasan al modelo (6 = las últimas 3 vueltas) |
 | `HISTORIAL_MSG_MAX_CHARS` | `2500` | Largo máximo de cada mensaje del historial |
 | `HISTORIAL_MAX_CHARS` | `6000` | Largo total máximo del historial (se descartan los más viejos) |
