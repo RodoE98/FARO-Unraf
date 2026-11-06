@@ -70,7 +70,29 @@ NUM_CTX = int(os.getenv("NUM_CTX", "8192"))                       # ventana de c
                                                                   # en todas las llamadas: si cambia, Ollama recarga el modelo.
 RAG_CHUNKS = int(os.getenv("RAG_CHUNKS", "4"))                    # fragmentos del PDF que se envían al modelo
 MAX_CONTEXT_CHARS = int(os.getenv("MAX_CONTEXT_CHARS", "12000"))  # tope de seguridad (~3000 tokens) para el contexto del PDF
-CORTESIA_RE = re.compile(r"^[\W_]*(?:ok|oka|okey|listo|dale|gracias|muchas gracias|mil gracias|perfecto|genial|excelente|entendido|entendi|bien|buenisimo|si,? (?:es )?claro.*|claro|chau|hola|buenas)[\W_]*$", re.I)
+_PALABRAS_CORTESIA = set("si ok oka okey listo dale gracias muchas mil perfecto genial excelente entendido entendi bien bueno buenisimo claro chau hola buenas muy es el la procedimiento todo gracias ahi eso exacto joya barbaro".split())
+
+
+class _Cortesia:
+    """Mensajes de cortesia ("listo", "si gracias", "muchas gracias") que no necesitan buscar material."""
+    @staticmethod
+    def match(texto):
+        import unicodedata
+        t = "".join(c for c in unicodedata.normalize("NFKD", texto.lower()) if not unicodedata.combining(c))
+        palabras = re.findall(r"[a-z]+", t)
+        return bool(palabras) and len(palabras) <= 6 and not re.search(r"\d", t) and all(p in _PALABRAS_CORTESIA for p in palabras)
+
+
+CORTESIA_RE = _Cortesia()
+
+
+def _consulta_libro(texto):
+    """Consulta para el libro con las erratas corregidas ("dirreccional" -> "direccional"), igual que en las fichas."""
+    try:
+        from busqueda_fichas import corregir_erratas
+        return corregir_erratas(texto)
+    except Exception:
+        return texto
 MAX_TOKENS = int(os.getenv("MAX_TOKENS", "1200"))                 # tope de respuesta (red de seguridad, no el control de largo).
                                                                   # Con 600 se cortaban los ejercicios resueltos con LaTeX a mitad de fórmula.
 RENDER_LATEX = os.getenv("RENDER_LATEX", "0") == "1"              # poner 1 SOLO si el frontend renderiza LaTeX (KaTeX/MathJax)
@@ -388,7 +410,7 @@ async def chat_endpoint(chat_data: ChatRequest, request: Request):
     if es_corta and consulta == chat_data.pregunta:   # sin palabras tecnicas propias: buscar en el libro con el tema anterior
         consulta = previas[-1] + "\n" + chat_data.pregunta
     contexto_pdf = "" if es_cortesia else await loop.run_in_executor(
-        executor, lambda: buscar_en_pdf(consulta, limite_chunks=RAG_CHUNKS_CON_FICHAS if fichas else RAG_CHUNKS, detalle=detalle_libro)
+        executor, lambda: buscar_en_pdf(_consulta_libro(consulta), limite_chunks=RAG_CHUNKS_CON_FICHAS if fichas else RAG_CHUNKS, detalle=detalle_libro)
     )
     if isinstance(contexto_pdf, (list, tuple)):
         contexto_pdf = "\n\n---\n\n".join(str(c) for c in contexto_pdf)
