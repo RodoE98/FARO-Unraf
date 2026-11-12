@@ -251,3 +251,12 @@ npm run dev
 - **Objeciones** («pero si…», «cómo puede ser…»): el prompt pide revisar la respuesta anterior contra el material y reconocer el error si lo hubo.
 - **Libro**: se quitan encabezados de página y las fórmulas que la extracción del PDF perdió se marcan como `[fórmula omitida en la extracción]`.
 - **LaTeX en el chat**: nuevo `frontend/src/lib/latex.ts`; antes `\[ \]` se convertía en `$` simple (JavaScript interpreta `$$` como un solo `$` en un reemplazo).
+
+
+## Dependencias del frontend (auditoría del 12/11)
+
+- `npm audit` pasó de 38 vulnerabilidades (6 críticas, 12 altas) a 11 (0 críticas, 0 altas); en producción (`--omit=dev`) quedan 4, todas de severidad baja.
+- Cambios, sin `--force` y sin pasar a Vite 8: `@tanstack/react-start` se fija en `~1.168.61` (la rama 1.168 corrige el XSS de `start-server-core` y sigue aceptando Vite 7; desde la 1.169 exige Vite 8); `npm audit fix` actualizó `seroval`, `vite` (7.3.8), `postcss`, `nanoid`, `brace-expansion`, etc. dentro de sus rangos; se quitó `zod` (no se importaba en ningún archivo); y `overrides` en `package.json` para `sharp`, `undici` y `ws`, que `nitro` trae anidados en versiones viejas.
+- Quedan sin corregir, a propósito: 4 de severidad baja en `katex`/`remark-math`/`rehype-katex` (el arreglo es un salto de versión mayor y el defecto afecta a la opción `trust`, que no se usa) y 7 moderadas en `typescript-eslint`/`minimatch` (sólo se usan al correr `npm run lint`, no llegan a la aplicación).
+- `vite.config.ts`: el proxy de `/api` (sólo del servidor de desarrollo) ahora toma el destino de `VITE_API_URL` (variable de entorno o `.env.local`, que ya escriben `run_local.ps1` y `run_runpod.ps1`); sin variable usa `http://localhost:8000`.
+- Instalar con `npm ci` (usa el `package-lock.json`). `bun.lock` quedó sin actualizar: si no se usa Bun, se puede borrar.
