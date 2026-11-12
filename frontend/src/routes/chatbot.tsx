@@ -10,6 +10,7 @@ import ReactMarkdown from "react-markdown";
 import remarkMath from "remark-math";
 import rehypeKatex from "rehype-katex";
 import "katex/dist/katex.min.css"; // Estilos de KaTeX para los símbolos matemáticos
+import { prepararMatematica } from "@/lib/latex";
 
 export const Route = createFileRoute("/chatbot")({
   head: () => ({
@@ -273,15 +274,8 @@ return (
           >
             {messages.map((m, i) => {
               // Función interna clave para normalizar los delimitadores matemáticos de Phi-3 a formato $ y $$ válidos
-              const formatearTextoMatematico = (texto: string) => {
-                if (m.role !== "ai") return texto;
-                return texto
-                  // Convierte bloques de ecuaciones escapados \[ ... \] o crudos [ ... ] a $$ ... $$
-                  .replace(/\\\[/g, "$$").replace(/\\\]/g, "$$")
-                  // Convierte fórmulas en línea escapadas \( ... \) o crudas ( ... ) a $ ... $
-                  .replace(/\\Ref/g, "$").replace(/\\\)/g, "$")
-                  .replace(/\\\(/g, "$");
-              };
+              const formatearTextoMatematico = (texto: string) =>
+                m.role !== "ai" ? texto : prepararMatematica(texto);
 
               return (
                 <div
@@ -318,10 +312,7 @@ return (
                     remarkPlugins={[remarkMath]}
                     rehypePlugins={[rehypeKatex]}
                   >
-                    {streamedText
-                      .replace(/\\\[/g, "$$").replace(/\\\]/g, "$$")
-                      .replace(/\\Ref/g, "$").replace(/\\\)/g, "$")
-                      .replace(/\\\(/g, "$")}
+                    {prepararMatematica(streamedText)}
                   </ReactMarkdown>
                 </div>
               </div>

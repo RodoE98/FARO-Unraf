@@ -817,6 +817,40 @@
       ],
       "tipo": "cubierta",
       "split": "test"
+    },
+    {
+      "q": "me podes ayudar a culcular la derivada parcail de f(x,y)=x^2*y+3y^2 con respecto a y?",
+      "esperadas": [
+        "PAR-01",
+        "PAR-02",
+        "PAR-03",
+        "PAR-04"
+      ],
+      "tipo": "cubierta",
+      "split": "dev"
+    },
+    {
+      "q": "no entinedo porq el gradiemte es perpendicualr a las curvas de nibel. me explicas con f(x,y)=x2+y2?",
+      "esperadas": [
+        "DIR-03"
+      ],
+      "tipo": "cubierta",
+      "split": "test"
+    },
+    {
+      "q": "tengo una funcion f(x,y)=x2-y2, si en (0,0) el gradiemte es cero hay un maximo o minimo?",
+      "esperadas": [
+        "EXT-02",
+        "EXT-03"
+      ],
+      "tipo": "cubierta",
+      "split": "dev"
+    },
+    {
+      "q": "la receta de keke de naranja con endendí",
+      "esperadas": [],
+      "tipo": "fuera_de_tema",
+      "split": "test"
     }
   ]
 }

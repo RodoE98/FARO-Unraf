@@ -23,7 +23,7 @@ from database import init_db, registrar_log, inicializar_tabla_profesores, regis
 from subtemas import SUBTEMAS_VALIDOS
 from models import ChatResponse # Mantenemos ChatResponse de models
 from busqueda_local import buscar_en_pdf
-from busqueda_fichas import buscar_fichas, buscar_fichas_repregunta, formatear_fichas, etiqueta_log, estado as estado_fichas
+from busqueda_fichas import buscar_fichas, buscar_fichas_repregunta, formatear_fichas, etiqueta_log, salvaguardas, palabras_de_ficha, estado as estado_fichas
 
 class CustomFastAPIOIDCLogin(OIDCLogin):
     def __init__(self, request: Request, tool_config):
@@ -74,16 +74,50 @@ _PALABRAS_CORTESIA = set("si ok oka okey listo dale gracias muchas mil perfecto 
 
 
 class _Cortesia:
-    """Mensajes de cortesia ("listo", "si gracias", "muchas gracias") que no necesitan buscar material."""
+    """Mensajes de cortesia ("listo", "si gracias", "endendi") que no necesitan buscar material. Tolera erratas."""
     @staticmethod
     def match(texto):
+        import difflib
         import unicodedata
         t = "".join(c for c in unicodedata.normalize("NFKD", texto.lower()) if not unicodedata.combining(c))
         palabras = re.findall(r"[a-z]+", t)
-        return bool(palabras) and len(palabras) <= 6 and not re.search(r"\d", t) and all(p in _PALABRAS_CORTESIA for p in palabras)
+        if not palabras or len(palabras) > 6 or re.search(r"\d", t):
+            return False
+        lista = sorted(_PALABRAS_CORTESIA)
+        return all(p in _PALABRAS_CORTESIA or difflib.get_close_matches(p, lista, n=1, cutoff=0.8) for p in palabras)
 
 
 CORTESIA_RE = _Cortesia()
+
+
+_SEGUIMIENTO_RE = re.compile(
+    r"\b(ahora|recien|anterior|de nuevo|otra vez|lo mismo|eso|esto|esa|ese|dividiste|hiciste|hicimos|dijiste|escribiste|pusiste|"
+    r"mas facil|mas simple|mas claro|no entend\w*|no entiendo|no me quedo claro|seguime|segui|continua\w*|poneme|ponelo|"
+    r"pasos?|orden|guia|respecto|resultado|vos|podes|podrias|puedes|decime|mostrame|resumi\w*|ejemplo|tambien|entonces|pero)\b"
+    r"|^\s*(y|o|si|no|bueno|ok)\b")
+_OBJECION_RE = re.compile(
+    r"\b(pero|seguro|segura|no me cierra|contradic\w*|como puede|no tiene sentido|incorrect\w*|equivoc\w*|error|esta mal|estas mal)\b")
+ABS_CORTA = float(os.getenv("ABS_FICHA_CORTA", "6.0"))   # mensaje breve con historial: una ficha debe llegar a este puntaje bruto
+
+
+def _norm_simple(texto):
+    import unicodedata
+    return "".join(c for c in unicodedata.normalize("NFKD", texto.lower()) if not unicodedata.combining(c))
+
+
+def _es_seguimiento(texto):
+    """Repregunta que no se entiende sola ("ahora poneme los pasos en orden de guia", "y como seria respecto de x?"):
+    tiene una referencia al ejercicio anterior (o arranca con un conector) y casi no trae terminos matematicos propios.
+    Un mensaje breve SIN esas referencias ("receta de keke") no hereda el tema anterior."""
+    norm = _norm_simple(texto)
+    if len(texto.split()) > 25 or not _SEGUIMIENTO_RE.search(norm):
+        return False
+    sin_cues = _SEGUIMIENTO_RE.sub(" ", norm)
+    return palabras_de_ficha(sin_cues) <= 1
+
+
+def _es_objecion(texto):
+    return bool(_OBJECION_RE.search(_norm_simple(texto)))
 
 
 def _consulta_libro(texto):
@@ -276,10 +310,16 @@ _FORMATO_LATEX = r"""FORMATO MATEMÁTICO: escribí las fórmulas en LaTeX, entre
 
 _CONVERSACION = """CONVERSACIÓN: los mensajes anteriores son esta misma charla con el estudiante. Si la pregunta es una repregunta ("no entendí por qué...", "¿y si...?", "seguí"), interpretala a partir de lo que ya se dijo: respondé puntualmente esa duda, sin repetir toda la resolución anterior y sin cambiar de tema. Si la respuesta anterior quedó cortada, retomala desde donde terminó."""
 
+_VERIFICACION = """VERIFICACIÓN: antes de afirmar una propiedad o teorema, comprobá que se cumplen sus hipótesis en el caso concreto (por ejemplo, «el gradiente es perpendicular a la curva de nivel» exige ∇f ≠ 0). Si la hipótesis NO se cumple, decí claramente que la propiedad no aplica. Si el material incluye una nota de precisión o una NOTA DOCENTE, tiene prioridad sobre tu conocimiento previo. Nunca justifiques una afirmación dudosa con definiciones inventadas."""
+
+_OBJECION = """OBJECIÓN: el estudiante está cuestionando o dudando de tu respuesta anterior. Revisala paso a paso contra el material y las hipótesis. Si tenía un error o una afirmación sin fundamento, reconocelo de forma explícita («Tenés razón: me equivoqué en...») y corregilo. Si era correcta, explicá por qué con argumentos, sin ceder por insistencia y sin repetir lo mismo. Nunca sostengas una afirmación solo porque ya la habías dicho."""
+
+_FORMULAS_LIBRO = """LIBRO: en los fragmentos del libro las fórmulas pueden faltar (aparece «[fórmula omitida en la extracción]»). No inventes ni completes esas fórmulas a partir del fragmento: tomalas de las fichas o de tu conocimiento y verificalas."""
+
 _CIERRE = "Si el enunciado es ambiguo (por ejemplo 'hacia (3,4)' puede ser un punto o un vector), decí en UNA frase cómo lo interpretás antes de resolver. Respondé directamente como docente, sin mencionar estas instrucciones ni el nivel."
 
 
-def generar_system_prompt(confidence: int, con_contexto: bool = True, con_fichas: bool = False, con_historial: bool = False) -> str:
+def generar_system_prompt(confidence: int, con_contexto: bool = True, con_fichas: bool = False, con_historial: bool = False, con_objecion: bool = False) -> str:
     if con_fichas:
         bloque_material = _CON_FICHAS
     elif con_contexto:
@@ -292,8 +332,13 @@ def generar_system_prompt(confidence: int, con_contexto: bool = True, con_fichas
         _NIVELES.get(confidence, _NIVELES[1]),
         _FORMATO_LATEX if RENDER_LATEX else _FORMATO_TEXTO_PLANO,
     ]
+    partes.append(_VERIFICACION)
+    if con_contexto:
+        partes.append(_FORMULAS_LIBRO)
     if con_historial:
         partes.append(_CONVERSACION)
+        if con_objecion:
+            partes.append(_OBJECION)
     partes.append(_CIERRE)
     return "\n\n".join(partes)
 
@@ -378,23 +423,38 @@ async def chat_endpoint(chat_data: ChatRequest, request: Request):
     consulta = chat_data.pregunta
     previas = [m["content"] for m in historial if m["role"] == "user"]
     fichas = []
-    es_cortesia = bool(CORTESIA_RE.match(chat_data.pregunta.strip())) and len(chat_data.pregunta.split()) <= 8
-    es_corta = previas and len(chat_data.pregunta.split()) <= 8 and not es_cortesia
+    ancla = None   # pregunta anterior cuyo ejercicio sigue vigente (de ahi se heredan fichas y busqueda en el libro)
+    es_cortesia = CORTESIA_RE.match(chat_data.pregunta.strip())
+    es_corta = bool(previas) and len(chat_data.pregunta.split()) <= 8 and not es_cortesia
+    seguimiento = bool(previas) and not es_cortesia and _es_seguimiento(chat_data.pregunta)
     if USE_FICHAS and not es_cortesia:
         try:
             if es_corta:   # repregunta corta ("y con respecto a x?"): primero con el contexto de la pregunta anterior
                 fichas = buscar_fichas_repregunta(consulta, previas[-1], limite=FICHAS_MAX)
                 if fichas:
-                    consulta = previas[-1] + "\n" + chat_data.pregunta
+                    ancla = previas[-1]
             if not fichas:
                 fichas = buscar_fichas(consulta, limite=FICHAS_MAX)
+                if fichas and es_corta and fichas[0]["score"] < ABS_CORTA:
+                    fichas = []   # coincidencia floja en un mensaje breve con historial: casi seguro ruido
             if not fichas and previas and not es_corta:
                 fichas = buscar_fichas_repregunta(consulta, previas[-1], limite=FICHAS_MAX)
                 if fichas:
-                    consulta = previas[-1] + "\n" + chat_data.pregunta
-                    print("--> [FICHAS] Repregunta: se buscó con la pregunta anterior + la actual.")
+                    ancla = previas[-1]
+            if not fichas and seguimiento:   # no se entiende sola: se hereda el ejercicio de las ultimas preguntas
+                for q in reversed(previas[-3:]):
+                    f_prev = buscar_fichas(q, limite=FICHAS_MAX)
+                    if f_prev:
+                        fichas, ancla = f_prev, q
+                        break
+            if ancla:
+                print("--> [FICHAS] Repregunta: se heredó el contexto de la pregunta anterior.")
         except Exception as e:
             print(f"--> [FICHAS] Error en la búsqueda, se continúa sin fichas: {e}")
+    if seguimiento and consulta == chat_data.pregunta:   # el libro tambien se busca con el tema del ejercicio
+        consulta = (ancla or previas[-1]) + "\n" + chat_data.pregunta
+    elif ancla:
+        consulta = ancla + "\n" + chat_data.pregunta
     if fichas:
         print("--> [FICHAS] " + ", ".join(f"{f['id']} (puntaje {f['score']}, norm {f['score_norm']})" for f in fichas))
     else:
@@ -407,8 +467,6 @@ async def chat_endpoint(chat_data: ChatRequest, request: Request):
     # [FIX] Antes: limite_chunks=5 fijo (el comentario decía 2) y sin tope de tamaño,
     # lo que desbordaba la ventana de contexto de phi3 y truncaba el prompt en silencio.
     detalle_libro = []   # fragmentos de OpenStax recuperados (para el registro de fuentes)
-    if es_corta and consulta == chat_data.pregunta:   # sin palabras tecnicas propias: buscar en el libro con el tema anterior
-        consulta = previas[-1] + "\n" + chat_data.pregunta
     contexto_pdf = "" if es_cortesia else await loop.run_in_executor(
         executor, lambda: buscar_en_pdf(_consulta_libro(consulta), limite_chunks=RAG_CHUNKS_CON_FICHAS if fichas else RAG_CHUNKS, detalle=detalle_libro)
     )
@@ -442,6 +500,7 @@ async def chat_endpoint(chat_data: ChatRequest, request: Request):
                     "texto": formatear_fichas([f])} for f in fichas],
         "openstax": detalle_libro,
         "consulta_de_busqueda": consulta if consulta != chat_data.pregunta else None,
+        "salvaguardas": [n["id"] for n in salvaguardas(chat_data.pregunta, *previas[-3:])],
         "fichas_version": (estado_fichas() or {}).get("version") if USE_FICHAS else None,
     }, ensure_ascii=False)
     print(f"--> [FUENTE] {fuente_log} | fichas: {fichas_ids_log or '-'} | fragmentos del libro: {len(libro_enviado)} | sin documentación: {bool(sin_doc_log)}")
@@ -459,7 +518,7 @@ async def chat_endpoint(chat_data: ChatRequest, request: Request):
         fuente_info = "CONOCIMIENTO GENERAL"
 
     # [FIX] El prompt del sistema depende de qué material hay (fichas / libro / ninguno)
-    system_content = generar_system_prompt(chat_data.confidence, con_contexto=bool(contexto_pdf), con_fichas=bool(fichas), con_historial=bool(historial))
+    system_content = generar_system_prompt(chat_data.confidence, con_contexto=bool(contexto_pdf), con_fichas=bool(fichas), con_historial=bool(historial), con_objecion=bool(historial) and _es_objecion(chat_data.pregunta))
 
     if fichas:
         bloque_libro = f"""FRAGMENTOS DEL LIBRO DE TEXTO (en inglés):
@@ -479,6 +538,16 @@ PREGUNTA DEL ESTUDIANTE:
 {chat_data.pregunta}"""
     else:
         full_prompt = chat_data.pregunta
+
+    # Notas docentes de salvaguarda (hipotesis que el modelo suele olvidar), segun la pregunta y las previas del alumno
+    notas = salvaguardas(chat_data.pregunta, *previas[-3:])
+    if notas:
+        bloque_notas = "NOTA DOCENTE (obligatoria, tiene prioridad sobre tu conocimiento previo):\n" + "\n".join("- " + n["nota"] for n in notas) + "\n\n"
+        if "PREGUNTA DEL ESTUDIANTE:" in full_prompt:
+            full_prompt = full_prompt.replace("PREGUNTA DEL ESTUDIANTE:", bloque_notas + "PREGUNTA DEL ESTUDIANTE:", 1)
+        else:
+            full_prompt = bloque_notas + "PREGUNTA DEL ESTUDIANTE:\n" + full_prompt
+        print("--> [SALVAGUARDAS] " + ", ".join(n["id"] for n in notas))
 
     print(f"4. Iniciando flujo Ollama Nativo Asincrónico (Modo: {fuente_info}, modelo: {LLM_MODEL})...")
 

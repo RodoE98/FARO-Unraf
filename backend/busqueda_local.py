@@ -162,6 +162,18 @@ def seleccionar_libro(texto_consulta):
     return BIBLIOTECA["calculo1"], "calculo1"
 
 
+MIN_SCORE_LIBRO = float(os.getenv("MIN_SCORE_LIBRO", "0.15"))   # puntaje TF-IDF minimo para entregar un fragmento del libro
+
+
+def limpiar_fragmento(texto):
+    """El texto extraido del PDF pierde las formulas (quedan huecos de espacios) y trae encabezados de pagina.
+    Se sacan los encabezados y los huecos se marcan, para que el modelo no invente la formula que falta."""
+    t = re.sub(r"Access for free at openstax\.org", " ", texto)
+    t = re.sub(r"\b\d+(?:\.\d+)? \u2022 [^\n]{3,90}?\s\d{2,4}\b", " ", t)
+    t = re.sub(r"(?<=\S) {3,}(?=\S)", " [fórmula omitida en la extracción] ", t)
+    return re.sub(r"[ \t]{2,}", " ", t).strip()
+
+
 def buscar_en_pdf(pregunta_alumno, limite_chunks=3, detalle=None):
     """
     Busca de forma ultra rápida en el índice invertido utilizando pesos TF-IDF 
@@ -225,7 +237,11 @@ def buscar_en_pdf(pregunta_alumno, limite_chunks=3, detalle=None):
 
     # Ordenamos los candidatos de mayor a menor relevancia
     candidatos_ordenados = sorted(scores_candidatos.items(), key=lambda x: x[1], reverse=True)
-    top_candidatos = candidatos_ordenados[:limite_chunks]
+    # Pertinencia: se descartan fragmentos con puntaje muy bajo (coincidencia casual de una palabra suelta)
+    top_candidatos = [c for c in candidatos_ordenados[:limite_chunks] if c[1] >= MIN_SCORE_LIBRO]
+    if not top_candidatos:
+        print(f"   [AVISO] Ningun fragmento supera el puntaje minimo ({MIN_SCORE_LIBRO}) para: {palabras_ingles}")
+        return None
 
     # Concatener los mejores fragmentos en un único string de contexto para alimentar tu LLM/Ollama
     contexto_consolidado = ""
@@ -237,10 +253,10 @@ def buscar_en_pdf(pregunta_alumno, limite_chunks=3, detalle=None):
         
         if detalle is not None:
             detalle.append({"libro": libro_archivo, "chunk": chunk_id, "seccion": ref["seccion"],
-                            "paginas": ref["paginas"], "score": round(float(score_final), 4), "texto": ref["contenido"]})
+                            "paginas": ref["paginas"], "score": round(float(score_final), 4), "texto": limpiar_fragmento(ref["contenido"])})
 
         # Le inyectamos una pequeña cabecera al texto para guiar al modelo si es necesario
         contexto_consolidado += f"--- [Fragmento de la Sección {ref['seccion']}, Páginas del PDF: {ref['paginas']}] ---\n"
-        contexto_consolidado += f"{ref['contenido']}\n\n"
+        contexto_consolidado += f"{limpiar_fragmento(ref['contenido'])}\n\n"
 
     return contexto_consolidado.strip()

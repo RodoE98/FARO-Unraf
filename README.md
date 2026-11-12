@@ -96,6 +96,8 @@ Se pueden cambiar sin tocar el código, por ejemplo `LLM_MODEL=qwen2.5:7b ./inic
 | `MAX_TOKENS` | `1200` | Tope de tokens por respuesta. Si una respuesta lo alcanza, se le avisa al alumno («La respuesta se cortó… escribí «seguí»») y queda marcado en `backend.log` |
 | `LIBRO_POR_DEFECTO` | `calculo3` | Tomo de OpenStax que se usa salvo que la consulta apunte claramente al tomo 2 (series, sucesiones, ecuaciones diferenciales, técnicas de integración). Valores: `calculo1`, `calculo2`, `calculo3` o `auto` (comportamiento anterior: tomo 1 salvo palabras clave del tomo 3 o 2). Cada fragmento guardado en el log indica de qué libro salió |
 | `HISTORIAL_MAX_MENSAJES` | `6` | Mensajes previos de la conversación que se le pasan al modelo (6 = las últimas 3 vueltas) |
+| `MIN_SCORE_LIBRO` | `0.15` | Puntaje TF-IDF mínimo para entregar un fragmento de OpenStax (descarta coincidencias casuales) |
+| `ABS_FICHA_CORTA` | `6.0` | Mensaje breve con historial: una ficha debe llegar a este puntaje bruto, si no se considera ruido |
 | `HISTORIAL_MSG_MAX_CHARS` | `2500` | Largo máximo de cada mensaje del historial |
 | `HISTORIAL_MAX_CHARS` | `6000` | Largo total máximo del historial (se descartan los más viejos) |
 | `RENDER_LATEX` | `1` con `iniciar_backend.sh` (`0` si se corre `uvicorn` a mano) | El modelo escribe las fórmulas en LaTeX (`$...$`). El frontend ya lo renderiza con KaTeX |
@@ -239,3 +241,13 @@ npm install
 # Levantar el entorno de desarrollo local (Vite)
 npm run dev
 ```
+
+
+## Continuidad de la conversación y salvaguardas (prueba del 9/11)
+
+- **Repreguntas que no se entienden solas** («ahora poneme los pasos en orden de guía», “y cómo sería respecto de x?”): el backend hereda las fichas y la búsqueda en el libro de la última pregunta que tuvo material (hasta 3 vueltas atrás). Un mensaje sin referencias al ejercicio anterior (p. ej. «receta de keke») no hereda nada. En el log, `consulta_de_busqueda` muestra con qué texto se buscó.
+- **Erratas**: se corrigen contra el vocabulario de las fichas (palabras largas por parecido; las de 5–7 letras sólo con un cambio simple y candidata única). También en la búsqueda del libro y en los mensajes de cortesía («endendí»).
+- **Salvaguardas** (`SALVAGUARDAS` en `busqueda_fichas.py`): notas docentes que se agregan al prompt cuando la consulta toca propiedades con hipótesis (gradiente ⟂ curva de nivel sólo si ∇f≠0; ∇f=0 no implica extremo). Se registran en `fragmentos` → `salvaguardas`. Para agregar otra, sumar un elemento a la lista.
+- **Objeciones** («pero si…», «cómo puede ser…»): el prompt pide revisar la respuesta anterior contra el material y reconocer el error si lo hubo.
+- **Libro**: se quitan encabezados de página y las fórmulas que la extracción del PDF perdió se marcan como `[fórmula omitida en la extracción]`.
+- **LaTeX en el chat**: nuevo `frontend/src/lib/latex.ts`; antes `\[ \]` se convertía en `$` simple (JavaScript interpreta `$$` como un solo `$` en un reemplazo).

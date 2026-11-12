@@ -115,18 +115,33 @@ def _vocabulario():
     return _VOCAB
 
 
+def _un_cambio(w, v):
+    """True si v se obtiene de w cambiando UNA letra o intercambiando dos letras contiguas (misma longitud)."""
+    if len(w) != len(v):
+        return False
+    dif = [i for i in range(len(w)) if w[i] != v[i]]
+    if len(dif) == 1:
+        return True
+    return len(dif) == 2 and dif[1] == dif[0] + 1 and w[dif[0]] == v[dif[1]] and w[dif[1]] == v[dif[0]]
+
+
 def corregir_erratas(texto):
     """Reemplaza palabras de la consulta que no existen en las fichas por la palabra parecida que si existe
-    ("dirreccional" -> "direccional", "culcular" -> "calcular"). Conservador: solo palabras de 8+ letras."""
+    ("dirreccional" -> "direccional", "culcular" -> "calcular"). Conservador: palabras largas por parecido; las de 5-7 letras solo con un cambio simple y candidata unica."""
     import difflib
     vocab = _vocabulario()
     conocidas = set(vocab)
     def arreglar(m):
         w = m.group(0)
-        if len(w) < 8 or w in conocidas or w in STOPWORDS:
+        if len(w) < 5 or w in conocidas or w in STOPWORDS:
             return w
-        cerca = difflib.get_close_matches(w, vocab, n=1, cutoff=0.82)
-        return cerca[0] if cerca else w
+        if len(w) >= 8:     # palabras largas: parecido general
+            cerca = difflib.get_close_matches(w, vocab, n=1, cutoff=0.82)
+            return cerca[0] if cerca else w
+        # palabras de 5 a 7 letras: solo una letra cambiada o dos letras seguidas intercambiadas ("parcail", "nibel"),
+        # y solo si hay UNA candidata (asi "receta" no se convierte en "recta")
+        cand = [v for v in vocab if _un_cambio(w, v)]
+        return cand[0] if len(cand) == 1 else w
     return re.sub(r"[a-z]+", arreglar, normalizar(texto, es_consulta=False))
 
 
@@ -196,6 +211,13 @@ def estado():
     """Resumen para /api/health."""
     _cargar()
     return {"fichas": len(_DATOS["fichas"]), "version": _DATOS.get("version", "")}
+
+
+def palabras_de_ficha(texto):
+    """Cuantas palabras distintas (raices) del texto existen en el vocabulario de las fichas: sirve para saber si un mensaje
+    trae terminos matematicos propios o si solo se entiende por la conversacion previa."""
+    idf = _cargar()["idf"]
+    return len({t for t in tokenizar(texto, es_consulta=True) if t in idf})
 
 
 def tema_sin_cobertura(pregunta):
@@ -303,3 +325,38 @@ def etiqueta_log(fichas):
     base = f"{fichas[0]['id']} {fichas[0]['titulo']}"
     extra = [f["id"] for f in fichas[1:]]
     return base + (f" (+ {', '.join(extra)})" if extra else "")
+
+
+# ---------------------------------------------------------------- salvaguardas matematicas
+# Notas docentes que se agregan al material cuando la consulta toca una propiedad con hipotesis que el modelo suele
+# olvidar. Complementan (no reemplazan) a las fichas. Regla: TODAS las expresiones de 'todas' deben aparecer en el texto
+# normalizado (pregunta actual + preguntas previas del alumno).
+SALVAGUARDAS = [
+    {
+        "id": "GRAD-PERP",
+        "todas": [r"gradiente|nabla", r"perpendicul|ortogonal|normal a|curvas? de nivel|conjunto de nivel"],
+        "nota": ("La propiedad «el gradiente es perpendicular a la curva de nivel» vale SOLO si ∇f ≠ 0 (punto regular). "
+                 "Si ∇f = 0 (punto crítico) la propiedad NO se cumple ni se puede afirmar: el vector nulo no tiene dirección, "
+                 "así que no es perpendicular a nada en ningún sentido útil, y la curva de nivel puede degenerar en un punto "
+                 "(f=x²+y² en el origen) o cruzarse (f=x²−y² en el origen). "
+                 "Antes de afirmar la perpendicularidad, verificá que ∇f ≠ 0 en el punto; si es nulo, decí explícitamente que la propiedad no aplica allí."),
+    },
+    {
+        "id": "GRAD-CERO",
+        "todas": [r"gradiente|nabla|punto critico", r"\bcero\b|\bnulo\b|vale 0|= ?0|critico", r"maxim|minim|extremo|silla"],
+        "nota": ("∇f = 0 solo indica un PUNTO CRÍTICO: no alcanza para asegurar un máximo ni un mínimo. "
+                 "Hay que clasificarlo (por ejemplo con el Hessiano o estudiando el signo de f alrededor): "
+                 "f=x²−y² tiene ∇f(0,0)=0 y (0,0) es un punto de silla."),
+    },
+]
+
+
+def salvaguardas(*textos):
+    """Notas docentes (lista de dicts id/nota) que corresponden al texto de la consulta (y las previas)."""
+    texto = " \n ".join(t for t in textos if t)
+    try:
+        texto = corregir_erratas(texto)
+    except Exception:
+        pass
+    texto = normalizar(texto, es_consulta=True)
+    return [s for s in SALVAGUARDAS if all(re.search(p, texto) for p in s["todas"])]

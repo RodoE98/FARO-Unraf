@@ -9,6 +9,7 @@ import ReactMarkdown from "react-markdown";
 import remarkMath from "remark-math";
 import rehypeKatex from "rehype-katex";
 import "katex/dist/katex.min.css"; // Estilos para renderizar LaTeX
+import { prepararMatematica } from "@/lib/latex";
 
 // 1. Estructura idéntica al JSON que te devolvió la URL (image_8e53cc.png)
 interface ChatLogAlumno {
@@ -189,7 +190,7 @@ function VisualizarLogsAlumnos() {
                           remarkPlugins={[remarkMath]} 
                           rehypePlugins={[rehypeKatex]}
                         >
-                          {log.respuesta_bot}
+                          {prepararMatematica(log.respuesta_bot ?? "")}
                         </ReactMarkdown>
                       </div>
                     </div>
