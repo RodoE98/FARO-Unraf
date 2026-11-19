@@ -260,3 +260,12 @@ npm run dev
 - Quedan sin corregir, a propósito: 4 de severidad baja en `katex`/`remark-math`/`rehype-katex` (el arreglo es un salto de versión mayor y el defecto afecta a la opción `trust`, que no se usa) y 7 moderadas en `typescript-eslint`/`minimatch` (sólo se usan al correr `npm run lint`, no llegan a la aplicación).
 - `vite.config.ts`: el proxy de `/api` (sólo del servidor de desarrollo) ahora toma el destino de `VITE_API_URL` (variable de entorno o `.env.local`, que ya escriben `run_local.ps1` y `run_runpod.ps1`); sin variable usa `http://localhost:8000`.
 - Instalar con `npm ci` (usa el `package-lock.json`). `bun.lock` quedó sin actualizar: si no se usa Bun, se puede borrar.
+
+## Cambios del piloto del 13/11 (diferenciación de niveles, errores conceptuales, contexto)
+
+- **Niveles**: cada nivel tiene una estructura propia (Principiante: «Idea en palabras», pasos con QUÉ/POR QUÉ, «Ojo con»; Intermedio: fórmula general con hipótesis, cálculos clave, conexión con otro concepto; Avanzado: definición formal, hipótesis exactas, justificación, casos borde). El largo ya no es lo que los distingue.
+- **Contexto**: el frontend envía hasta 80 mensajes; el backend manda completos los últimos 6 y resume el resto (variables `RESUMEN_*`, `HISTORIAL_ENVIADOS_MAX`). `NUM_CTX` por defecto = 12288 (también en `iniciar_backend.sh`). Regla «EJERCICIO DEL ESTUDIANTE»: no reemplazar su función por la de un ejemplo.
+- **Errores conceptuales**: salvaguarda `VECTOR-NULO` (la derivada direccional en (0,0) NO está definida), reglas COHERENCIA y OBJECIÓN (nombrar contradicciones, no ceder por insistencia). Es por prompt: no es una garantía. Recomendado: agregar una nota sobre el vector nulo a la ficha DIR-02.
+- **Fichas**: las repreguntas heredan el ejercicio vigente (incluyendo "volvamos al primer ejercicio" y repreguntas encadenadas); una ficha propia extra solo entra con puntaje ≥ `ABS_FICHA_EXTRA` (10).
+- **Logs**: nueva columna `nivel` (también en el CSV de `exportar_logs.py`).
+- **Pruebas**: `python3 scripts/test_sesiones_offline.py` (sin modelo) reproduce la sesión del piloto (`scripts/guion_piloto_13_11.json`) en los 3 niveles y verifica fichas, resumen, notas docentes y reglas. No evalúa la calidad de las respuestas del modelo: eso requiere probarlo en el pod.

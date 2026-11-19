@@ -342,6 +342,16 @@ SALVAGUARDAS = [
                  "Antes de afirmar la perpendicularidad, verificá que ∇f ≠ 0 en el punto; si es nulo, decí explícitamente que la propiedad no aplica allí."),
     },
     {
+        "id": "VECTOR-NULO",
+        "todas": [r"vector (nulo|cero)|\(?0 ?, ?0\)?|\bv ?= ?0\b", r"direccional|direccion|derivada|normaliz|unitario|vector"],
+        "nota": ("La derivada direccional se define para una DIRECCIÓN, es decir, un vector unitario u (||u|| = 1). "
+                 "Un vector dado v se convierte en dirección normalizándolo: u = v/||v||, y eso exige v ≠ 0. "
+                 "El vector nulo (0,0) no tiene dirección y no se puede normalizar: la derivada direccional según (0,0) NO ESTÁ DEFINIDA. "
+                 "No afirmes que «vale cero»: aunque el producto escalar ∇f·(0,0) da 0, ese número no es una derivada direccional "
+                 "(no mide cómo cambia f en ninguna dirección). Tampoco digas que es cero «en cualquier dirección unitaria»: "
+                 "para cada dirección unitaria u el valor es ∇f·u y, en general, no es cero. No lo expliques con límites inventados."),
+    },
+    {
         "id": "GRAD-CERO",
         "todas": [r"gradiente|nabla|punto critico", r"\bcero\b|\bnulo\b|vale 0|= ?0|critico", r"maxim|minim|extremo|silla"],
         "nota": ("∇f = 0 solo indica un PUNTO CRÍTICO: no alcanza para asegurar un máximo ni un mínimo. "

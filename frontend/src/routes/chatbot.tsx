@@ -67,10 +67,11 @@ const send = async () => {
     controlEnCurso.current = control;
 
     // Historial de esta charla (sin el saludo ni los errores de conexión) para que el modelo entienda las repreguntas.
-    // `messages` todavía NO incluye la pregunta actual; el backend se queda con los últimos mensajes que le entran.
+    // `messages` todavía NO incluye la pregunta actual. Se manda toda la sesión (hasta 80 mensajes): el backend deja completos los
+    // últimos y resume los anteriores, así el modelo no pierde el ejercicio original en charlas largas.
     const historial = messages
       .filter((m) => m.id !== "welcome" && !m.text.startsWith("No pude conectarme"))
-      .slice(-6)
+      .slice(-80)
       .map((m) => ({ role: m.role === "ai" ? "assistant" : "user", text: m.text }));
 
     const userMsg = addMessage({ role: "user", text });

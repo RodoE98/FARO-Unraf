@@ -66,7 +66,7 @@ executor = ThreadPoolExecutor(max_workers=3)
 # Ej:  LLM_MODEL=qwen2.5:7b uvicorn main:app --host 0.0.0.0 --port 8000
 OLLAMA_HOST = os.getenv("OLLAMA_HOST", "http://localhost:11434")  # el backend corre en el mismo pod que Ollama
 LLM_MODEL = os.getenv("LLM_MODEL", "qwen2.5:14b")                 # antes: 'phi3:mini' hardcodeado en 2 lugares
-NUM_CTX = int(os.getenv("NUM_CTX", "8192"))                       # ventana de contexto (tokens). Usar SIEMPRE el mismo valor
+NUM_CTX = int(os.getenv("NUM_CTX", "12288"))                       # ventana de contexto (tokens). Usar SIEMPRE el mismo valor
                                                                   # en todas las llamadas: si cambia, Ollama recarga el modelo.
 RAG_CHUNKS = int(os.getenv("RAG_CHUNKS", "4"))                    # fragmentos del PDF que se envían al modelo
 MAX_CONTEXT_CHARS = int(os.getenv("MAX_CONTEXT_CHARS", "12000"))  # tope de seguridad (~3000 tokens) para el contexto del PDF
@@ -97,7 +97,8 @@ _SEGUIMIENTO_RE = re.compile(
     r"|^\s*(y|o|si|no|bueno|ok)\b")
 _OBJECION_RE = re.compile(
     r"\b(pero|seguro|segura|no me cierra|contradic\w*|como puede|no tiene sentido|incorrect\w*|equivoc\w*|error|esta mal|estas mal)\b")
-ABS_CORTA = float(os.getenv("ABS_FICHA_CORTA", "6.0"))   # mensaje breve con historial: una ficha debe llegar a este puntaje bruto
+ABS_CORTA = float(os.getenv("ABS_FICHA_CORTA", "6.0"))
+ABS_EXTRA = float(os.getenv("ABS_FICHA_EXTRA", "10.0"))   # en una repregunta, una ficha de la pregunta actual que no sea del ejercicio en curso debe llegar a este puntaje   # mensaje breve con historial: una ficha debe llegar a este puntaje bruto
 
 
 def _norm_simple(texto):
@@ -105,15 +106,26 @@ def _norm_simple(texto):
     return "".join(c for c in unicodedata.normalize("NFKD", texto.lower()) if not unicodedata.combining(c))
 
 
+_FUERTE_RE = re.compile(
+    r"\b(ahora|recien|anterior|de nuevo|otra vez|lo mismo|dividiste|hiciste|hicimos|dijiste|escribiste|pusiste|usaste|calculamos|"
+    r"calculaste|volvamos|volve|primer[oa]?|y si|en vez de|en lugar de|no entend\w*|no entiendo|me perdi|poneme|ponelo|equivocaste|contradic\w*|antes)\b")
+
+
 def _es_seguimiento(texto):
     """Repregunta que no se entiende sola ("ahora poneme los pasos en orden de guia", "y como seria respecto de x?"):
-    tiene una referencia al ejercicio anterior (o arranca con un conector) y casi no trae terminos matematicos propios.
-    Un mensaje breve SIN esas referencias ("receta de keke") no hereda el tema anterior."""
+    se refiere al ejercicio anterior (o arranca con un conector) y trae pocos terminos matematicos propios.
+    Con una referencia explicita a lo ya dicho ("dividiste", "te equivocaste", "volvamos al primero") se toleran mas terminos
+    propios. Un mensaje breve SIN esas referencias ("receta de keke") no hereda el tema anterior."""
     norm = _norm_simple(texto)
-    if len(texto.split()) > 25 or not _SEGUIMIENTO_RE.search(norm):
+    fuerte = bool(_FUERTE_RE.search(norm))
+    if not (fuerte or _SEGUIMIENTO_RE.search(norm)) or len(texto.split()) > (45 if fuerte else 25):
         return False
-    sin_cues = _SEGUIMIENTO_RE.sub(" ", norm)
-    return palabras_de_ficha(sin_cues) <= 1
+    sin_cues = _SEGUIMIENTO_RE.sub(" ", _FUERTE_RE.sub(" ", norm))
+    return palabras_de_ficha(sin_cues) <= (4 if fuerte else 1)
+
+
+def _referencia_fuerte(texto):
+    return bool(_FUERTE_RE.search(_norm_simple(texto)))
 
 
 def _es_objecion(texto):
@@ -136,7 +148,11 @@ CLASSIFY_TOPIC = os.getenv("CLASSIFY_TOPIC", "0") == "1"          # poner 1 para
 # El frontend manda los últimos mensajes y el backend se los pasa a Qwen para que entienda "no entendí por qué dividiste por 5".
 HISTORIAL_MAX_MENSAJES = int(os.getenv("HISTORIAL_MAX_MENSAJES", "6"))       # 6 = las últimas 3 vueltas (pregunta + respuesta)
 HISTORIAL_MSG_MAX_CHARS = int(os.getenv("HISTORIAL_MSG_MAX_CHARS", "2500"))  # tope por mensaje (se conserva el principio)
-HISTORIAL_MAX_CHARS = int(os.getenv("HISTORIAL_MAX_CHARS", "6000"))          # tope total (~2000 tokens): se descartan los más viejos
+HISTORIAL_MAX_CHARS = int(os.getenv("HISTORIAL_MAX_CHARS", "6000"))
+HISTORIAL_ENVIADOS_MAX = int(os.getenv("HISTORIAL_ENVIADOS_MAX", "80"))        # mensajes que se aceptan del frontend (toda la sesión)
+RESUMEN_MAX_CHARS = int(os.getenv("RESUMEN_MAX_CHARS", "3500"))                # tope del resumen de lo dicho ANTES de los últimos mensajes
+RESUMEN_PREGUNTA_CHARS = int(os.getenv("RESUMEN_PREGUNTA_CHARS", "320"))       # por pregunta del alumno en el resumen
+RESUMEN_RESPUESTA_CHARS = int(os.getenv("RESUMEN_RESPUESTA_CHARS", "260"))     # por conclusión del tutor en el resumen          # tope total (~2000 tokens): se descartan los más viejos
 
 # --- FICHAS DOCENTES (corpus de derivadas curado por la cátedra) ---
 USE_FICHAS = os.getenv("USE_FICHAS", "1") == "1"                  # 0 = ignorar las fichas (sirve para comparar con/sin fichas)
@@ -178,13 +194,30 @@ def limpiar_session_id(valor) -> Optional[str]:
     return v if re.fullmatch(r"[A-Z0-9-]{3,40}", v) else None
 
 def preparar_historial(historial) -> list:
-    """Convierte el historial del frontend en mensajes para Ollama, respetando los topes de tamaño.
-    Descarta los más viejos primero y hace que empiece siempre con un mensaje del alumno."""
+    """Mensajes recientes (completos) para Ollama. Ver preparar_conversacion para la sesión entera."""
+    return preparar_conversacion(historial)[0]
+
+
+def _conclusion(texto: str) -> str:
+    """Cierre de una respuesta del tutor (donde suele estar el resultado), sin la pregunta final de control."""
+    partes = [p for p in re.split(r"\n\s*\n", (texto or "").strip()) if p.strip()]
+    while len(partes) > 1 and partes[-1].lstrip().startswith("¿"):
+        partes.pop()
+    t = " ".join(partes[-1].split()) if partes else ""
+    return t if len(t) <= RESUMEN_RESPUESTA_CHARS else "…" + t[-RESUMEN_RESPUESTA_CHARS:]
+
+
+def preparar_conversacion(historial):
+    """Toda la sesión, en dos partes:
+      - mensajes recientes completos (los últimos HISTORIAL_MAX_MENSAJES), como antes;
+      - un resumen de todo lo anterior (pregunta del alumno + conclusión del tutor de cada vuelta), para que el modelo
+        no pierda el ejercicio original ni los resultados ya calculados cuando la charla se alarga.
+    Devuelve (mensajes_recientes, resumen_texto, preguntas_del_alumno_de_toda_la_sesion)."""
+    todos = [m for m in (historial or [])[-HISTORIAL_ENVIADOS_MAX:] if (m.text or "").strip()]
+    previas = [m.text.strip()[:1500] for m in todos if m.role == "user"]
     msgs = []
-    for m in (historial or [])[-HISTORIAL_MAX_MENSAJES:]:
-        texto = (m.text or "").strip()
-        if not texto:
-            continue
+    for m in todos[-HISTORIAL_MAX_MENSAJES:]:
+        texto = m.text.strip()
         if len(texto) > HISTORIAL_MSG_MAX_CHARS:
             texto = texto[:HISTORIAL_MSG_MAX_CHARS] + " […]"
         msgs.append({"role": "user" if m.role == "user" else "assistant", "content": texto})
@@ -192,7 +225,25 @@ def preparar_historial(historial) -> list:
         msgs.pop(0)
     while msgs and msgs[0]["role"] != "user":
         msgs.pop(0)
-    return msgs
+    # lo que quedó fuera de los mensajes recientes pasa al resumen
+    anteriores = todos[:len(todos) - len(msgs)]
+    vueltas = []
+    for m in anteriores:
+        if m.role == "user":
+            q = " ".join(m.text.split())
+            vueltas.append([q if len(q) <= RESUMEN_PREGUNTA_CHARS else q[:RESUMEN_PREGUNTA_CHARS] + "…", None])
+        elif vueltas:
+            vueltas[-1][1] = _conclusion(m.text)
+    lineas = [f"{i}. Alumno: {q}" + (f"\n   Tutor (conclusión): {a}" if a else "") for i, (q, a) in enumerate(vueltas, 1)]
+    while len(lineas) > 2 and sum(len(x) + 1 for x in lineas) > RESUMEN_MAX_CHARS:
+        del lineas[1]   # se conserva siempre el primer ejercicio y lo más reciente
+    omitidas = len(vueltas) - len(lineas)
+    if omitidas > 0:
+        lineas.insert(1, f"   […{omitidas} intercambios intermedios omitidos…]")
+    return msgs, "\n".join(lineas), previas
+
+NOMBRES_NIVEL = {1: "Principiante", 2: "Intermedio", 3: "Avanzado"}
+
 
 class FeedbackProfesorRequest(BaseModel):
     email: str = Field(..., example="elias.profesor@unraf.edu.ar", description="Email del profesor autenticado")
@@ -286,40 +337,54 @@ _CON_FICHAS = """MATERIAL: recibirás FICHAS DE LA CÁTEDRA (material docente cu
 _SIN_CONTEXTO = """MATERIAL: no se encontró material del libro para esta consulta. Respondé con tu conocimiento matemático estándar de nivel universitario, con especial cuidado en la exactitud. Si la pregunta no es de matemática, respondé brevemente que sólo podés ayudar con matemática."""
 
 _NIVELES = {
-    1: """NIVEL PRINCIPIANTE:
-- Tono cálido y cercano, en español rioplatense (voseo), sin frases de relleno ni elogios vacíos.
-- Explicá con lenguaje simple y definí cada término técnico la primera vez que aparece. Mostrá el procedimiento paso a paso y explicá el porqué de cada paso.
-- Podés usar una analogía cotidiana SÓLO si realmente aclara la idea: una o dos oraciones, sin reemplazar la explicación matemática. No uses analogías al resolver cálculos ni al responder repreguntas.
-- Cerrá con una única pregunta corta de control para el alumno.
-- Extensión: en una pregunta conceptual, unas 150 palabras; si hay un ejercicio, lo necesario para resolverlo completo (hasta unas 300 palabras).""",
+    1: """NIVEL PRINCIPIANTE (el estudiante recién se acerca al tema): tu objetivo es que ENTIENDA la idea, no sólo que obtenga el número.
+Tono cálido y cercano, en español rioplatense (voseo), sin elogios vacíos. Estructura obligatoria:
+1) «Idea en palabras»: 2-3 oraciones, sin símbolos, que digan qué se busca y qué mide o significa (por ejemplo, «qué tan rápido cambia la función si me muevo hacia ese lado»).
+2) Resolución en pasos numerados: en cada paso decí QUÉ hacés y POR QUÉ, y mostrá todas las cuentas intermedias (incluida la aritmética). Definí cada término técnico la primera vez que aparece y no uses notación que no hayas explicado.
+3) «Qué significa el resultado»: 1-2 oraciones en lenguaje cotidiano (si es positivo/negativo, sube/baja, etc.).
+4) «Ojo con»: el error más típico de este tema, en una oración.
+5) Cerrá con UNA pregunta corta de control.
+Podés usar una analogía cotidiana sólo en el punto 1 y sólo si aclara de verdad. En una repregunta, respondé esa duda con otras palabras o un ejemplo numérico más simple, sin rehacer todo.""",
 
-    2: """NIVEL INTERMEDIO:
-- Tono profesional y académico, directo.
-- Empezá enunciando la regla, propiedad o criterio que se aplica; después el procedimiento, de forma secuencial y omitiendo pasos aritméticos elementales.
-- Extensión: en una pregunta conceptual, unas 120 palabras; si hay un ejercicio, lo necesario para resolverlo completo (hasta unas 250 palabras).""",
+    2: """NIVEL INTERMEDIO (el estudiante ya maneja derivadas parciales y vectores): tu objetivo es que aplique el método con criterio.
+Tono profesional y académico. Estructura obligatoria:
+1) Enunciá la definición, regla o teorema que se aplica, con sus hipótesis, en 1-2 líneas y con la fórmula general ANTES de reemplazar valores.
+2) Resolución secuencial con las cuentas clave; omití la aritmética elemental (no expliques cómo se multiplica o se suma).
+3) Interpretá el resultado (signo, magnitud, significado geométrico o analítico) y conectalo con otro concepto del tema (por ejemplo, con el gradiente o con las derivadas parciales).
+4) Señalá una verificación rápida del resultado o el error frecuente de este método.
+No uses analogías cotidianas ni expliques conceptos de prerrequisito (qué es una derivada parcial, qué es un producto escalar).""",
 
-    3: """NIVEL EXPERTO:
-- Tono estrictamente formal y minimalista; sin analogías ni ejemplos cotidianos.
-- Comenzá directamente con el planteo o la definición formal que corresponda y usá notación matemática estándar.
-- Sé lo más sintético posible: unas 100 palabras en una pregunta conceptual y, si hay un ejercicio, sólo los pasos esenciales (hasta unas 200 palabras); no repitas definiciones obvias para un estudiante avanzado.""",
+    3: """NIVEL AVANZADO (el estudiante busca rigor y comprensión profunda): tu objetivo es que entienda POR QUÉ vale el resultado y hasta dónde.
+Tono estrictamente formal; sin analogías ni ejemplos cotidianos. Estructura obligatoria:
+1) Planteá la definición formal (por ejemplo, la derivada direccional como límite) y las hipótesis EXACTAS bajo las que vale cada fórmula que uses (por ejemplo, por qué se necesita diferenciabilidad y no alcanza con que existan las derivadas parciales).
+2) Justificá el resultado: la idea de la demostración o por qué la fórmula es válida; luego el cálculo condensado, sin aritmética elemental ni pasos triviales.
+3) Discutí condiciones de validez, casos límite o un contraejemplo (por ejemplo, qué pasa si el vector es nulo o la función no es diferenciable) y, cuando corresponda, una generalización (n variables, valores extremos de la derivada direccional ±||∇f||).
+4) No expliques conceptos básicos ni repitas definiciones que un estudiante avanzado ya conoce.""",
 }
+
+_LONGITUD = """LONGITUD Y DIFERENCIACIÓN: los tres niveles NO se distinguen por la cantidad de palabras sino por el enfoque y la profundidad conceptual. Seguí la estructura del nivel aunque la respuesta resulte parecida en extensión; no copies el desarrollo de otro nivel. Una pregunta conceptual se responde en unas 150-200 palabras y un ejercicio en lo necesario para resolverlo completo (hasta unas 350 palabras)."""
 
 _FORMATO_TEXTO_PLANO = r"""FORMATO MATEMÁTICO: escribí las fórmulas en texto plano legible (por ejemplo f(x), x^2, sqrt(x), lim_{h->0}, integral de 0 a 1 de ...). No uses LaTeX ni los delimitadores \( \) o \[ \]."""
 
 _FORMATO_LATEX = r"""FORMATO MATEMÁTICO: escribí las fórmulas en LaTeX, entre $...$ si van dentro de una oración o entre $$...$$ si van en su propia línea."""
 
-_CONVERSACION = """CONVERSACIÓN: los mensajes anteriores son esta misma charla con el estudiante. Si la pregunta es una repregunta ("no entendí por qué...", "¿y si...?", "seguí"), interpretala a partir de lo que ya se dijo: respondé puntualmente esa duda, sin repetir toda la resolución anterior y sin cambiar de tema. Si la respuesta anterior quedó cortada, retomala desde donde terminó."""
+_CONVERSACION = """CONVERSACIÓN: los mensajes anteriores son esta misma charla con el estudiante. Si la pregunta es una repregunta («no entendí por qué...», «¿y si...?», «seguí»), interpretala a partir de lo que ya se dijo: respondé puntualmente esa duda, sin repetir toda la resolución anterior y sin cambiar de tema. Si la respuesta anterior quedó cortada, retomala desde donde terminó.
+EJERCICIO DEL ESTUDIANTE: la función, el punto y el vector del ejercicio los puso el estudiante en su enunciado. Los ejemplos que das vos para explicar otro concepto («curvas de nivel», «gradiente»...) NO son su ejercicio: no reemplaces sus datos por los de un ejemplo ni inventes datos. Si te pide volver a un ejercicio anterior, usá exactamente sus datos (están en el resumen o en los mensajes); si no los encontrás, pedíselos en una frase en lugar de suponerlos."""
 
-_VERIFICACION = """VERIFICACIÓN: antes de afirmar una propiedad o teorema, comprobá que se cumplen sus hipótesis en el caso concreto (por ejemplo, «el gradiente es perpendicular a la curva de nivel» exige ∇f ≠ 0). Si la hipótesis NO se cumple, decí claramente que la propiedad no aplica. Si el material incluye una nota de precisión o una NOTA DOCENTE, tiene prioridad sobre tu conocimiento previo. Nunca justifiques una afirmación dudosa con definiciones inventadas."""
+_VERIFICACION = """VERIFICACIÓN: antes de afirmar una propiedad o teorema, comprobá que se cumplen sus hipótesis en el caso concreto (por ejemplo, «el gradiente es perpendicular a la curva de nivel» exige ∇f ≠ 0; la derivada direccional exige un vector unitario, o sea una dirección). Si la hipótesis NO se cumple, decí claramente que la propiedad no aplica o que el objeto no está definido. Si el material incluye una nota de precisión o una NOTA DOCENTE, tiene prioridad sobre tu conocimiento previo. Nunca justifiques una afirmación dudosa con definiciones inventadas.
+COHERENCIA: no afirmes dos cosas incompatibles en la misma respuesta (por ejemplo, que algo «no está definido» y a la vez que «vale cero»). Antes de responder, releé tu respuesta anterior y la del material: tu nueva respuesta no puede contradecirlas sin decirlo."""
 
-_OBJECION = """OBJECIÓN: el estudiante está cuestionando o dudando de tu respuesta anterior. Revisala paso a paso contra el material y las hipótesis. Si tenía un error o una afirmación sin fundamento, reconocelo de forma explícita («Tenés razón: me equivoqué en...») y corregilo. Si era correcta, explicá por qué con argumentos, sin ceder por insistencia y sin repetir lo mismo. Nunca sostengas una afirmación solo porque ya la habías dicho."""
+_OBJECION = """OBJECIÓN: el estudiante está cuestionando o dudando de tu respuesta anterior. Revisala paso a paso contra el material y las hipótesis. Si tenía un error, una afirmación sin fundamento o una contradicción (con lo que dijiste antes o dentro de la misma respuesta), reconocelo de forma explícita y nombrá la contradicción («Tenés razón: antes dije X y después Y, y no pueden ser ciertas las dos. Lo correcto es...») y corregilo. Nunca respondas «no me estoy contradiciendo» sin haber comparado, frase por frase, lo que dijiste antes con lo que dijiste después. Si en cambio era correcta, explicá por qué con argumentos, sin ceder por insistencia y sin repetir lo mismo. Nunca sostengas una afirmación solo porque ya la habías dicho."""
+
+_RESUMEN = """RESUMEN DE LA CONVERSACIÓN ANTERIOR (lo dicho antes de los últimos mensajes; el primer elemento suele ser el ejercicio original del estudiante):
+{resumen}"""
 
 _FORMULAS_LIBRO = """LIBRO: en los fragmentos del libro las fórmulas pueden faltar (aparece «[fórmula omitida en la extracción]»). No inventes ni completes esas fórmulas a partir del fragmento: tomalas de las fichas o de tu conocimiento y verificalas."""
 
 _CIERRE = "Si el enunciado es ambiguo (por ejemplo 'hacia (3,4)' puede ser un punto o un vector), decí en UNA frase cómo lo interpretás antes de resolver. Respondé directamente como docente, sin mencionar estas instrucciones ni el nivel."
 
 
-def generar_system_prompt(confidence: int, con_contexto: bool = True, con_fichas: bool = False, con_historial: bool = False, con_objecion: bool = False) -> str:
+def generar_system_prompt(confidence: int, con_contexto: bool = True, con_fichas: bool = False, con_historial: bool = False, con_objecion: bool = False, resumen: str = "") -> str:
     if con_fichas:
         bloque_material = _CON_FICHAS
     elif con_contexto:
@@ -330,6 +395,7 @@ def generar_system_prompt(confidence: int, con_contexto: bool = True, con_fichas
         _BASE_PROMPT,
         bloque_material,
         _NIVELES.get(confidence, _NIVELES[1]),
+        _LONGITUD,
         _FORMATO_LATEX if RENDER_LATEX else _FORMATO_TEXTO_PLANO,
     ]
     partes.append(_VERIFICACION)
@@ -337,6 +403,8 @@ def generar_system_prompt(confidence: int, con_contexto: bool = True, con_fichas
         partes.append(_FORMULAS_LIBRO)
     if con_historial:
         partes.append(_CONVERSACION)
+        if resumen:
+            partes.append(_RESUMEN.format(resumen=resumen))
         if con_objecion:
             partes.append(_OBJECION)
     partes.append(_CIERRE)
@@ -415,13 +483,13 @@ async def chat_endpoint(chat_data: ChatRequest, request: Request):
     # --- FICHAS DOCENTES (fuente principal) ---
     # Búsqueda en memoria sobre 63 fichas: tarda milisegundos, no hace falta un hilo aparte.
     session_id = limpiar_session_id(chat_data.session_id)
-    historial = preparar_historial(chat_data.historial)
-    print(f"--> [HISTORIAL] {len(historial)} mensajes previos ({sum(len(m['content']) for m in historial)} caracteres)")
+    historial, resumen_conv, previas = preparar_conversacion(chat_data.historial)
+    print(f"--> [HISTORIAL] {len(historial)} mensajes recientes ({sum(len(m['content']) for m in historial)} caracteres)"
+          + (f" + resumen de la sesión ({len(resumen_conv)} caracteres)" if resumen_conv else ""))
 
     # Normalmente se busca con la pregunta tal cual. Si no aparece ninguna ficha y hay una pregunta previa, puede ser una
     # repregunta ("no entendí por qué dividiste por 5"): se reintenta con la pregunta anterior + la actual.
     consulta = chat_data.pregunta
-    previas = [m["content"] for m in historial if m["role"] == "user"]
     fichas = []
     ancla = None   # pregunta anterior cuyo ejercicio sigue vigente (de ahi se heredan fichas y busqueda en el libro)
     es_cortesia = CORTESIA_RE.match(chat_data.pregunta.strip())
@@ -446,6 +514,45 @@ async def chat_endpoint(chat_data: ChatRequest, request: Request):
                     f_prev = buscar_fichas(q, limite=FICHAS_MAX)
                     if f_prev:
                         fichas, ancla = f_prev, q
+                        break
+            # Objecion o referencia explicita a lo ya dicho ("te equivocaste", "volvamos al primero"): el tema vigente es el del
+            # ejercicio en curso. Se priorizan sus fichas y de la pregunta actual se agrega, como mucho, una con puntaje alto.
+            propia_fuerte = bool(fichas) and fichas[0]["score"] >= 12 and not ancla and not _es_objecion(chat_data.pregunta) \
+                and not re.search(r"\bprimer[oa]?\b", _norm_simple(chat_data.pregunta))   # pregunta nueva y bien identificada
+            if previas and fichas and not propia_fuerte and (not ancla or _referencia_fuerte(ancla) or _es_objecion(ancla)) \
+                    and (_referencia_fuerte(chat_data.pregunta) or _es_objecion(chat_data.pregunta)):
+                memo = {}
+
+                def _tema(i):
+                    """Fichas del ejercicio vigente en la pregunta previas[i]: si esa pregunta era a su vez una repregunta
+                    ("volvamos al primer ejercicio"), se resuelve con las anteriores, no con su propio texto."""
+                    if i in memo:
+                        return memo[i]
+                    q = previas[i]
+                    f = buscar_fichas(q, limite=FICHAS_MAX)
+                    if i > 0 and (_referencia_fuerte(q) or _es_objecion(q)):
+                        base = _tema(i - 1)
+                        if re.search(r"\bprimer[oa]?\b", _norm_simple(q)):
+                            base = _tema(0) or base
+                        if base:
+                            ids_b = {x["id"] for x in base[:2]}
+                            extra = [x for x in f if x["id"] not in ids_b and x["score"] >= ABS_EXTRA][:1]
+                            f = (base[:2] + extra)[:FICHAS_MAX]
+                    memo[i] = f
+                    return f
+
+                n_prev = len(previas)
+                if re.search(r"\bprimer[oa]?\b", _norm_simple(chat_data.pregunta)):
+                    orden = [0] + list(range(n_prev - 1, 0, -1))
+                else:
+                    orden = list(range(n_prev - 1, max(n_prev - 7, -1), -1))
+                for i in orden:
+                    f_prev = _tema(i)
+                    if f_prev:
+                        ids_prev = {f["id"] for f in f_prev[:2]}
+                        extra = [f for f in fichas if f["id"] not in ids_prev and f["score"] >= ABS_EXTRA][:1]
+                        fichas = (f_prev[:2] + extra)[:FICHAS_MAX]
+                        ancla = previas[i]
                         break
             if ancla:
                 print("--> [FICHAS] Repregunta: se heredó el contexto de la pregunta anterior.")
@@ -518,7 +625,7 @@ async def chat_endpoint(chat_data: ChatRequest, request: Request):
         fuente_info = "CONOCIMIENTO GENERAL"
 
     # [FIX] El prompt del sistema depende de qué material hay (fichas / libro / ninguno)
-    system_content = generar_system_prompt(chat_data.confidence, con_contexto=bool(contexto_pdf), con_fichas=bool(fichas), con_historial=bool(historial), con_objecion=bool(historial) and _es_objecion(chat_data.pregunta))
+    system_content = generar_system_prompt(chat_data.confidence, con_contexto=bool(contexto_pdf), con_fichas=bool(fichas), con_historial=bool(historial), con_objecion=bool(historial) and _es_objecion(chat_data.pregunta), resumen=resumen_conv)
 
     if fichas:
         bloque_libro = f"""FRAGMENTOS DEL LIBRO DE TEXTO (en inglés):
@@ -627,7 +734,8 @@ PREGUNTA DEL ESTUDIANTE:
                 fuente_log,
                 fichas_ids_log,
                 sin_doc_log,
-                fragmentos_log
+                fragmentos_log,
+                NOMBRES_NIVEL.get(chat_data.confidence, str(chat_data.confidence))
             )
         except Exception as e:
             print(f"ERROR AL REGISTRAR LOG: {e}")
@@ -769,7 +877,7 @@ async def obtener_logs_para_profesores(email_profesor: str):
         conn = get_connection()
         cursor = conn.cursor()
         # Traemos el historial de lo que preguntaron los alumnos
-        cursor.execute("SELECT id, user_id, course_id, role, subtema, pregunta, respuesta, timestamp, session_id, fuente, fichas_ids, sin_documentacion, fragmentos FROM chat_logs ORDER BY id DESC")
+        cursor.execute("SELECT id, user_id, course_id, role, subtema, pregunta, respuesta, timestamp, session_id, fuente, fichas_ids, sin_documentacion, fragmentos, nivel FROM chat_logs ORDER BY id DESC")
         rows = cursor.fetchall()
         conn.close()
         
@@ -788,7 +896,8 @@ async def obtener_logs_para_profesores(email_profesor: str):
                 "fuente": row[9],
                 "fichas_ids": row[10],
                 "sin_documentacion": row[11],
-                "fragmentos": json.loads(row[12]) if row[12] else None
+                "fragmentos": json.loads(row[12]) if row[12] else None,
+                "nivel": row[13]
             })
         return logs
     except Exception as e:

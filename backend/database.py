@@ -44,7 +44,7 @@ def init_db():
     #   fichas_ids        ids de las fichas entregadas al modelo, separados por coma (ej. "DIR-02,DIR-01")
     #   sin_documentacion 1 si no se le entregó ninguna ficha ni fragmento del libro
     #   fragmentos        JSON con el texto exacto de las fichas y de los fragmentos de OpenStax recuperados
-    for nombre, tipo in (("fuente", "TEXT"), ("fichas_ids", "TEXT"), ("sin_documentacion", "INTEGER"), ("fragmentos", "TEXT")):
+    for nombre, tipo in (("fuente", "TEXT"), ("fichas_ids", "TEXT"), ("sin_documentacion", "INTEGER"), ("fragmentos", "TEXT"), ("nivel", "TEXT")):
         if nombre not in columnas:
             cursor.execute(f"ALTER TABLE chat_logs ADD COLUMN {nombre} {tipo}")
     cursor.execute("CREATE INDEX IF NOT EXISTS idx_chat_logs_session ON chat_logs(session_id)")
@@ -52,15 +52,15 @@ def init_db():
     conn.close()
 
 def registrar_log(user_id, course_id, role, subtema, pregunta, respuesta, session_id=None,
-                  fuente=None, fichas_ids=None, sin_documentacion=None, fragmentos=None):
+                  fuente=None, fichas_ids=None, sin_documentacion=None, fragmentos=None, nivel=None):
     """Guarda las consultas de los alumnos de manera segura de forma posicional."""
     conn = get_connection()
     cursor = conn.cursor()
     try:
         cursor.execute("""
             INSERT INTO chat_logs (user_id, course_id, role, subtema, pregunta, respuesta, timestamp, session_id,
-                                   fuente, fichas_ids, sin_documentacion, fragmentos)
-            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                                   fuente, fichas_ids, sin_documentacion, fragmentos, nivel)
+            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
         """, (
             str(user_id),
             str(course_id),
@@ -73,7 +73,8 @@ def registrar_log(user_id, course_id, role, subtema, pregunta, respuesta, sessio
             fuente,
             fichas_ids,
             sin_documentacion,
-            fragmentos
+            fragmentos,
+            nivel
         ))
         conn.commit()
         print("--> [DB SUCCESS] Registro de consulta de alumno guardado en logs_pedagogicos.db.")

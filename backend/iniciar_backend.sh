@@ -100,7 +100,7 @@ echo "== 7/7 Cargando el modelo en la GPU (la primera vez desde un reinicio pued
 # con el mismo num_ctx que usa el backend: carga el modelo y lo deja listo, asi la primera pregunta de un alumno no espera.
 INICIO_CARGA=$(date +%s)
 if curl -sf --max-time 600 http://localhost:11434/api/generate \
-    -d "{\"model\":\"$LLM_MODEL\",\"prompt\":\"Hola\",\"stream\":false,\"keep_alive\":-1,\"options\":{\"num_predict\":1,\"num_ctx\":${NUM_CTX:-8192}}}" >/dev/null; then
+    -d "{\"model\":\"$LLM_MODEL\",\"prompt\":\"Hola\",\"stream\":false,\"keep_alive\":-1,\"options\":{\"num_predict\":1,\"num_ctx\":${NUM_CTX:-12288}}}" >/dev/null; then
     echo "Modelo cargado y listo ($(( $(date +%s) - INICIO_CARGA )) s)."
 else
     echo "AVISO: no se pudo precalentar el modelo; la primera consulta sera lenta. Revisar $LOG_DIR/ollama.log"

@@ -1,0 +1,184 @@
+{
+ "descripcion": "Guion del piloto del 13/11 (sesiones 7560, 13791, 18229), repetido en los tres niveles. 'espera' = lo que el backend debe entregar al modelo en ese turno.",
+ "turnos": [
+  {
+   "pregunta": "Me explicás cómo calcular la derivada direccional de f(x,y)=x²+3xy en el punto (1,2), en la dirección del vector (3,4)? No entiendo cómo se hace.",
+   "espera": {
+    "fichas_incluyen": [
+     "DIR-02"
+    ]
+   }
+  },
+  {
+   "pregunta": "ahora poneme los pasos en orden de guia",
+   "espera": {
+    "fichas_incluyen": [
+     "DIR-02"
+    ],
+    "system_no_contiene": [
+     "RESUMEN DE LA CONVERSACIÓN ANTERIOR"
+    ]
+   }
+  },
+  {
+   "pregunta": "no entendi por qe dividiste el vector por 5, me lo explicas sin repetir toda la cuenta?",
+   "espera": {
+    "fichas_incluyen": [
+     "DIR-02"
+    ]
+   }
+  },
+  {
+   "pregunta": "Si f(x,y)=x²+y², el gradiente en (0,0) es perpendicular a la curva de nivel que pasa por ese punto? Explicame por qué.",
+   "espera": {
+    "fichas_incluyen": [
+     "DIR-03"
+    ],
+    "usuario_contiene": [
+     "NOTA DOCENTE",
+     "∇f ≠ 0"
+    ]
+   }
+  },
+  {
+   "pregunta": "Pero si el producto escalar del vector nulo con cualquier vector da cero, entonces es perpendicular, no?",
+   "espera": {
+    "hay_fichas": true,
+    "usuario_contiene": [
+     "NOTA DOCENTE"
+    ],
+    "system_contiene": [
+     "OBJECIÓN"
+    ]
+   }
+  },
+  {
+   "pregunta": "Volvamos a f(x,y)=x²+3xy. ¿Cómo calculo la derivada parcial respecto de y en el punto (1,2)?",
+   "espera": {
+    "hay_fichas": true,
+    "fichas_no_incluyen": [
+     "DIR-03",
+     "MV-05",
+     "MV-06"
+    ]
+   }
+  },
+  {
+   "pregunta": "y como seria respecto de x?",
+   "espera": {
+    "hay_fichas": true,
+    "fichas_incluyen": [
+     "PAR-01"
+    ],
+    "fichas_no_incluyen": [
+     "PRE-11",
+     "MV-11"
+    ]
+   }
+  },
+  {
+   "pregunta": "no entendi xq al derivar 3xy respecto d x queda 3y, no tendria q ser 3x?",
+   "espera": {
+    "hay_fichas": true,
+    "fichas_no_incluyen": [
+     "DIR-02"
+    ]
+   }
+  },
+  {
+   "pregunta": "ahora si endedí, pero si deribo 3xy respecto de y me queda 3x? por qe?",
+   "espera": {
+    "hay_fichas": true
+   }
+  },
+  {
+   "pregunta": "¿podés responder sólo  ala pregunta concreta y no desarrollar todo el ejercicio?",
+   "espera": {
+    "system_contiene": [
+     "RESUMEN DE LA CONVERSACIÓN ANTERIOR"
+    ]
+   }
+  },
+  {
+   "pregunta": "cambiemos de tema. no entiendo bien q es una curva de nivel. me das un ejemplo sencillo?",
+   "espera": {
+    "fichas_incluyen": [
+     "MV-05"
+    ]
+   }
+  },
+  {
+   "pregunta": "volvamos al primer ejercicio de derivada direccional. si en vez de (3,4) uso el vector (0,2), cuanto me daria? explicamelo cortito",
+   "espera": {
+    "fichas_incluyen": [
+     "DIR-02"
+    ],
+    "system_contiene": [
+     "RESUMEN DE LA CONVERSACIÓN ANTERIOR",
+     "x²+3xy",
+     "EJERCICIO DEL ESTUDIANTE"
+    ]
+   }
+  },
+  {
+   "pregunta": "Creo que te equivocaste. Usaste la función del ejemplo de curvas de nivel y no la del primer ejercicio. Revisá nuestra conversación y corregí el resultado sin que tenga que repetirte la función.",
+   "espera": {
+    "fichas_incluyen": [
+     "DIR-02"
+    ],
+    "fichas_no_incluyen": [
+     "MV-02"
+    ],
+    "system_contiene": [
+     "OBJECIÓN",
+     "x²+3xy"
+    ]
+   }
+  },
+  {
+   "pregunta": "y si el vector fuera (0,0), me daria cero tambien? explicamelo en 2 renglones xfa",
+   "espera": {
+    "fichas_incluyen": [
+     "DIR-02"
+    ],
+    "usuario_contiene": [
+     "NOTA DOCENTE",
+     "NO ESTÁ DEFINIDA"
+    ]
+   }
+  },
+  {
+   "pregunta": "pero si el vector (0,0) no tiene direccion, como podes decir que la derivada direccional vale cero? no seria que no esta definida?",
+   "espera": {
+    "fichas_incluyen": [
+     "DIR-02"
+    ],
+    "usuario_contiene": [
+     "NO ESTÁ DEFINIDA"
+    ],
+    "system_contiene": [
+     "OBJECIÓN",
+     "COHERENCIA"
+    ]
+   }
+  },
+  {
+   "pregunta": "pero antes calculamos que la derivada direccional en la direccion (0,1) era 3. ahora decis que en cualquier direccion unitaria es cero. no te estas contradiciendo?",
+   "espera": {
+    "fichas_incluyen": [
+     "DIR-02"
+    ],
+    "fichas_no_incluyen": [
+     "MV-10"
+    ],
+    "system_contiene": [
+     "OBJECIÓN",
+     "nombrá la contradicción"
+    ],
+    "usuario_contiene": [
+     "NOTA DOCENTE"
+    ]
+   }
+  }
+ ]
+}

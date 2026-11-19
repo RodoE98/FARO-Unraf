@@ -36,7 +36,7 @@ def main():
     con = sqlite3.connect(a.db)
     con.row_factory = sqlite3.Row
     columnas = [r[1] for r in con.execute("PRAGMA table_info(chat_logs)")]
-    extra = [c for c in ("session_id", "fuente", "fichas_ids", "sin_documentacion", "fragmentos") if c in columnas]
+    extra = [c for c in ("session_id", "fuente", "fichas_ids", "sin_documentacion", "fragmentos", "nivel") if c in columnas]
     sel = "id, user_id, role, subtema, pregunta, respuesta, timestamp" + "".join(f", {c}" for c in extra)
     sql, params = f"SELECT {sel} FROM chat_logs WHERE 1=1", []
     if a.desde:
@@ -51,7 +51,7 @@ def main():
     sin_doc = 0
     with open(ruta, "w", newline="", encoding="utf-8-sig") as f:   # utf-8-sig: Excel respeta los acentos
         w = csv.writer(f)
-        w.writerow(["id", "fecha_utc", "sesion", "usuario_hash", "rol", "fuente", "fichas", "sin_documentacion",
+        w.writerow(["id", "fecha_utc", "sesion", "nivel", "usuario_hash", "rol", "fuente", "fichas", "sin_documentacion",
                     "tema", "pregunta", "respuesta", "fragmentos_openstax", "texto_fragmentos"])
         for r in filas:
             d = dict(r)
@@ -62,7 +62,7 @@ def main():
             fuente = d.get("fuente") or "(sin registro)"
             cuenta[fuente] += 1
             sin_doc += 1 if d.get("sin_documentacion") else 0
-            w.writerow([d["id"], d["timestamp"], d.get("session_id") or "", d["user_id"], d["role"], fuente,
+            w.writerow([d["id"], d["timestamp"], d.get("session_id") or "", d.get("nivel") or "", d["user_id"], d["role"], fuente,
                         d.get("fichas_ids") or "", d.get("sin_documentacion") if d.get("sin_documentacion") is not None else "",
                         d["subtema"], d["pregunta"], d["respuesta"], libro, d.get("fragmentos") or ""])
     print(f"{len(filas)} consultas exportadas a {ruta}\n")
